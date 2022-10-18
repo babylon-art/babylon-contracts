@@ -2,8 +2,6 @@
 pragma solidity ^0.8.10;
 pragma abicoder v2;
 
-import "hardhat/console.sol";
-
 import "../interfaces/IBabylonCore.sol";
 import "../interfaces/ITokensController.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";

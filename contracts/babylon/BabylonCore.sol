@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: agpl-3.0
 pragma solidity ^0.8.10;
 pragma abicoder v2;
-import "hardhat/console.sol";
 
 import "../interfaces/IBabylonCore.sol";
 import "../interfaces/ITokensController.sol";
@@ -29,6 +28,7 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
     event ListingResolving(uint256 listingId, uint256 randomRequestId);
     event ListingSuccessful(uint256 listingId, address claimer);
     event ListingCanceled(uint256 listingId);
+    event ListingFinalized(uint256 listingId);
 
     function initialize(
         ITokensController tokensController,
@@ -116,6 +116,8 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
 
         if (sent) {
             listing.state = ListingState.Finalized;
+
+            emit ListingFinalized(id);
         }
     }
 
@@ -147,6 +149,10 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
         _tokensController.sendToken(listing.item, listing.creator, claimer);
 
         emit ListingSuccessful(id, claimer);
+    }
+
+    function getAvailableId() external view returns (uint256) {
+        return _availableId;
     }
 
     function getListingId(address token, uint256 tokenId) external view returns (uint256) {

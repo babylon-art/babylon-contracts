@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: agpl-3.0
 pragma solidity ^0.8.10;
-import "hardhat/console.sol";
 
 import "../interfaces/IRandomProvider.sol";
 import "../interfaces/IBabylonCore.sol";
