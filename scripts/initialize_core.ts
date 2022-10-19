@@ -7,14 +7,14 @@ async function main() {
     [deployer] = await ethers.getSigners();
 
     let coreAddress = "0xc50c17359f2bb803ef7D2e59efe36BeC799FaFb6";
-    let subscriptionId = 4099;
+    let controllerAddress = "0x8ee0805E4bAF4413f72108dF7a20b1c9a8fF794F";
+    let providerAddress = "0x22319d4da064DEddf6D297e0277383620028229e";
 
-    const providerFactory = await ethers.getContractFactory("RandomProvider", deployer);
+    const core = await ethers.getContractAt("BabylonCore", coreAddress, deployer);
+    let tx = await core.initialize(controllerAddress, providerAddress);
+    await tx.wait();
 
-    const provider = await providerFactory.deploy(coreAddress, subscriptionId);
-
-    await provider.deployed();
-    console.log(`RandomProvider deployed at: ${provider.address}`);
+    console.log(`BabylonCore initialized`);
 }
 
 main()

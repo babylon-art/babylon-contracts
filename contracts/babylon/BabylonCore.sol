@@ -12,7 +12,8 @@ import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.
 contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, ReentrancyGuardUpgradeable {
     ITokensController internal _tokensController;
     IRandomProvider internal _randomProvider;
-    uint256 internal _availableId;
+    //listing ids start from 1st, not 0
+    uint256 internal _lastListingId;
 
     // collection address -> tokenId -> id of a listing
     mapping(address => mapping(uint256 => uint256)) internal _ids;
@@ -55,8 +56,9 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
             "BabylonCore: Token should be owned and approved to the controller"
         );
 
-        _ids[item.token][item.identifier] = _availableId;
-        ListingInfo storage listing = _listingInfos[_availableId];
+        _lastListingId++;
+        _ids[item.token][item.identifier] = _lastListingId;
+        ListingInfo storage listing = _listingInfos[_lastListingId];
         listing.item = item;
         listing.state = ListingState.Active;
         listing.creator = msg.sender;
@@ -65,9 +67,7 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
         listing.price = price;
         listing.blockOfCreation = block.number;
 
-        emit ListingStarted(_availableId, msg.sender, item.token, item.identifier);
-
-        _availableId++;
+        emit ListingStarted(_lastListingId, msg.sender, item.token, item.identifier);
     }
 
     function participate(uint256 id, uint256 tickets) external payable {
@@ -151,8 +151,8 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
         emit ListingSuccessful(id, claimer);
     }
 
-    function getAvailableId() external view returns (uint256) {
-        return _availableId;
+    function getLastListingId() external view returns (uint256) {
+        return _lastListingId;
     }
 
     function getListingId(address token, uint256 tokenId) external view returns (uint256) {

@@ -12,8 +12,8 @@ contract RandomProvider is IRandomProvider, Ownable, VRFConsumerBaseV2 {
     event RequestFulfilled(uint256 requestId, uint256 listingId, uint256[] randomWords);
 
     struct RequestStatus {
-        bool fulfilled; // whether the request has been successfully fulfilled
         bool exists; // whether a requestId exists
+        bool fulfilled; // whether the request has been successfully fulfilled
         uint256 listingId; //to which listing request corresponds
     }
 
@@ -37,6 +37,10 @@ contract RandomProvider is IRandomProvider, Ownable, VRFConsumerBaseV2 {
         keyHash = 0x79d3d8832d904592c0bf9818b621522c988bb8b0c05cdc3b15aea1b6e8db0c15;
         _babylonCore = babylonCore_;
         subscriptionId = subscriptionId_;
+    }
+
+    function setCore(IBabylonCore babylonCore) external onlyOwner {
+        _babylonCore = babylonCore;
     }
 
     function fulfillRandomWords(uint256 _requestId, uint256[] memory randomWords) internal override {

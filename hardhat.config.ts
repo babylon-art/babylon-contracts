@@ -20,9 +20,6 @@ const PRIVATE_KEY_2 = process.env.PRIVATE_KEY_2 || "";
 const PRIVATE_KEY_3 = process.env.PRIVATE_KEY_3 || "";
 import './scripts';
 
-import {task} from "hardhat/config";
-import {SignerWithAddress} from "@nomiclabs/hardhat-ethers/signers";
-
 const config: HardhatUserConfig = {
     defaultNetwork: "hardhat",
     solidity: {
