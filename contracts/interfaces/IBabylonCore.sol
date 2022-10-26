@@ -51,4 +51,8 @@ interface IBabylonCore {
         uint256 id,
         uint256 random
     ) external;
+
+    function getListingInfo(uint256 id) external view returns (ListingInfo memory);
+
+    function getParticipation(address participant, uint256 id) external view returns (Participation memory);
 }

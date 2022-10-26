@@ -498,6 +498,23 @@
     "@jridgewell/resolve-uri" "^3.0.3"
     "@jridgewell/sourcemap-codec" "^1.4.10"
 
+"@manifoldxyz/creator-core-solidity@^1.0.4":
+  version "1.0.4"
+  resolved "https://registry.yarnpkg.com/@manifoldxyz/creator-core-solidity/-/creator-core-solidity-1.0.4.tgz#ad95fc3ba18127712530763845c7a6e7f2b0216c"
+  integrity sha512-tI84XBVb0wKnnw5ydqURxJqHcQT1RpJepPlSjh3z6XL7E0s0+af17pY/eK2xAJYB1riVlQlnHmiTBHQ6N+qfig==
+  dependencies:
+    "@manifoldxyz/libraries-solidity" "^1.0.2"
+    "@openzeppelin/contracts" "^4.2.0"
+    "@openzeppelin/contracts-upgradeable" "^4.2.0"
+
+"@manifoldxyz/libraries-solidity@^1.0.2":
+  version "1.0.2"
+  resolved "https://registry.yarnpkg.com/@manifoldxyz/libraries-solidity/-/libraries-solidity-1.0.2.tgz#c63284d910ff6e7af3e1954a54dd126abd084518"
+  integrity sha512-qdCLBD5CicgT6UtDB1fED1kpJfgDqIB6WahtsfZ23ha/nYEBXKHJZ1urIHaIeCOdw8cTi6fMQbQWrld4V1S7dQ==
+  dependencies:
+    "@openzeppelin/contracts" "^4.2.0"
+    "@openzeppelin/contracts-upgradeable" "^4.2.0"
+
 "@metamask/eth-sig-util@^4.0.0":
   version "4.0.1"
   resolved "https://registry.yarnpkg.com/@metamask/eth-sig-util/-/eth-sig-util-4.0.1.tgz#3ad61f6ea9ad73ba5b19db780d40d9aae5157088"
@@ -751,7 +768,7 @@
     "@types/sinon-chai" "^3.2.3"
     "@types/web3" "1.0.19"
 
-"@openzeppelin/contracts-upgradeable@^4.7.3":
+"@openzeppelin/contracts-upgradeable@^4.2.0", "@openzeppelin/contracts-upgradeable@^4.7.3":
   version "4.7.3"
   resolved "https://registry.yarnpkg.com/@openzeppelin/contracts-upgradeable/-/contracts-upgradeable-4.7.3.tgz#f1d606e2827d409053f3e908ba4eb8adb1dd6995"
   integrity sha512-+wuegAMaLcZnLCJIvrVUDzA9z/Wp93f0Dla/4jJvIhijRrPabjQbZe6fWiECLaJyfn5ci9fqf9vTw3xpQOad2A==
@@ -761,7 +778,7 @@
   resolved "https://registry.yarnpkg.com/@openzeppelin/contracts/-/contracts-3.4.2.tgz#d81f786fda2871d1eb8a8c5a73e455753ba53527"
   integrity sha512-z0zMCjyhhp4y7XKAcDAi3Vgms4T2PstwBdahiO0+9NaGICQKjynK3wduSRplTgk4LXmoO1yfDGO5RbjKYxtuxA==
 
-"@openzeppelin/contracts@^4.3.3", "@openzeppelin/contracts@^4.7.3":
+"@openzeppelin/contracts@^4.2.0", "@openzeppelin/contracts@^4.3.3", "@openzeppelin/contracts@^4.7.3":
   version "4.7.3"
   resolved "https://registry.yarnpkg.com/@openzeppelin/contracts/-/contracts-4.7.3.tgz#939534757a81f8d69cc854c7692805684ff3111e"
   integrity sha512-dGRS0agJzu8ybo44pCIf3xBaPQN/65AIXNgK8+4gzKd5kbvlqyxryUYVLJv7fK98Seyd2hDZzVEHSWAh0Bt1Yw==
