@@ -10,7 +10,6 @@ async function main() {
     let manifoldCreatorCore = "0x535f5d15BD9b978d932A463522A9075C3eDD30fF";
 
     const editionsFactory = await ethers.getContractFactory("BabylonEditionsExtension", deployer);
-
     const editions = await editionsFactory.deploy(manifoldCreatorCore, babylonCore);
 
     await editions.deployed();

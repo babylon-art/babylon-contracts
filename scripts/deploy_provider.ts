@@ -6,7 +6,7 @@ async function main() {
 
     [deployer] = await ethers.getSigners();
 
-    let coreAddress = "0xc50c17359f2bb803ef7D2e59efe36BeC799FaFb6";
+    let coreAddress = "0x064269A2C161884dd7090267BCc946D3266fB6aa";
     let subscriptionId = 4099;
 
     const providerFactory = await ethers.getContractFactory("RandomProvider", deployer);

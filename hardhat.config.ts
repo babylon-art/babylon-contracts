@@ -60,7 +60,7 @@ const config: HardhatUserConfig = {
         },
         goerli: {
             url: `https://eth-goerli.g.alchemy.com/v2/${ALCHEMY_GOERLI_KEY}`,
-            accounts: [PRIVATE_KEY, PRIVATE_KEY_2],
+            accounts: [PRIVATE_KEY, PRIVATE_KEY_2, PRIVATE_KEY_3],
         },
         local: {
             url: "http://127.0.0.1:8545",

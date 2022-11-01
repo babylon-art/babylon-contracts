@@ -3,6 +3,7 @@ pragma solidity ^0.8.10;
 
 import "../interfaces/IBabylonCore.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC1155/extensions/IERC1155MetadataURI.sol";
 import "@manifoldxyz/creator-core-solidity/contracts/core/IERC1155CreatorCore.sol";
 
 contract BabylonEditionsExtension is Ownable {
@@ -76,6 +77,18 @@ contract BabylonEditionsExtension is Ownable {
             return true;
 
         return false;
+    }
+
+    function getEdition(uint256 listingId) external view returns (uint256) {
+        return _editions[listingId];
+    }
+
+    function getEditionURI(uint256 listingId) external view returns (string memory) {
+        return IERC1155MetadataURI(_creatorCore).uri(_editions[listingId]);
+    }
+
+    function getMinted(address user, uint256 listingId) external view returns (uint256) {
+        return _minted[user][listingId];
     }
 
     function getBabylonCore() external view returns (IBabylonCore) {
