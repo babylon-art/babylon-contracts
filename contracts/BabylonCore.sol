@@ -2,9 +2,11 @@
 pragma solidity ^0.8.10;
 pragma abicoder v2;
 
-import "../interfaces/IBabylonCore.sol";
-import "../interfaces/ITokensController.sol";
-import "../interfaces/IRandomProvider.sol";
+import "./interfaces/IBabylonCore.sol";
+import "./interfaces/IBabylonMintPass.sol";
+import "./interfaces/ITokensController.sol";
+import "./interfaces/IRandomProvider.sol";
+import "./interfaces/IEditionsExtension.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
@@ -12,20 +14,18 @@ import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.
 contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, ReentrancyGuardUpgradeable {
     ITokensController internal _tokensController;
     IRandomProvider internal _randomProvider;
+    IEditionsExtension internal _editionsExtension;
+    string internal _mintPassBaseURI;
     //listing ids start from 1st, not 0
     uint256 internal _lastListingId;
 
     // collection address -> tokenId -> id of a listing
     mapping(address => mapping(uint256 => uint256)) internal _ids;
-    // address of a user -> id of a listing -> participation struct
-    mapping(address => mapping(uint256 => Participation)) internal _tickets;
     // id of a listing -> a listing info
     mapping(uint256 => ListingInfo) internal _listingInfos;
-    // id of a listing -> index of a participant -> address of a participant
-    mapping(uint256 => mapping(uint256 => address)) internal _participantsByIndex;
 
     event NewParticipant(uint256 listingId, address participant, uint256 ticketsAmount);
-    event ListingStarted(uint256 listingId, address creator, address token, uint256 tokenId);
+    event ListingStarted(uint256 listingId, address creator, address token, uint256 tokenId, address mintPass);
     event ListingResolving(uint256 listingId, uint256 randomRequestId);
     event ListingSuccessful(uint256 listingId, address claimer);
     event ListingCanceled(uint256 listingId);
@@ -33,41 +33,50 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
 
     function initialize(
         ITokensController tokensController,
-        IRandomProvider randomProvider
+        IRandomProvider randomProvider,
+        IEditionsExtension editionsExtension
     ) public initializer {
         __Context_init_unchained();
         __Ownable_init_unchained();
         __ReentrancyGuard_init_unchained();
         _tokensController = tokensController;
         _randomProvider = randomProvider;
+        _editionsExtension = editionsExtension;
+        transferOwnership(msg.sender);
     }
 
     function startListing(
         ListingItem calldata item,
         uint256 timeStart,
         uint256 price,
-        uint256 totalTickets
+        uint256 totalTickets,
+        string calldata editionURI
     ) external {
         require(price > 0, "BabylonCore: Price of one ticket is too low");
         require(totalTickets > 0, "BabylonCore: Number of tickets is too low");
 
         require(
-            _tokensController.checkListingPrerequisites(msg.sender, item),
+            _tokensController.checkApproval(msg.sender, item),
             "BabylonCore: Token should be owned and approved to the controller"
         );
 
-        _lastListingId++;
-        _ids[item.token][item.identifier] = _lastListingId;
-        ListingInfo storage listing = _listingInfos[_lastListingId];
+
+        uint256 newListingId = _lastListingId + 1;
+        address mintPass = _tokensController.createMintPass(newListingId);
+        _editionsExtension.registerEdition(msg.sender, newListingId, editionURI);
+        _ids[item.token][item.identifier] = newListingId;
+        ListingInfo storage listing = _listingInfos[newListingId];
         listing.item = item;
         listing.state = ListingState.Active;
         listing.creator = msg.sender;
+        listing.mintPass = mintPass;
         listing.timeStart = timeStart;
         listing.totalTickets = totalTickets;
         listing.price = price;
         listing.blockOfCreation = block.number;
+        _lastListingId = newListingId;
 
-        emit ListingStarted(_lastListingId, msg.sender, item.token, item.identifier);
+        emit ListingStarted(newListingId, msg.sender, item.token, item.identifier, mintPass);
     }
 
     function participate(uint256 id, uint256 tickets) external payable {
@@ -79,12 +88,7 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
         uint256 totalPrice = listing.price * tickets;
         require(msg.value == totalPrice, "BabylonCore: msg.value doesn't match price for tickets");
 
-        Participation storage participation = _tickets[msg.sender][id];
-        participation.amount += tickets;
-
-        for (uint i = 0; i < tickets; i++) {
-           _participantsByIndex[id][current + i] = msg.sender;
-        }
+        IBabylonMintPass(listing.mintPass).mint(msg.sender, tickets);
 
         listing.currentTickets = current + tickets;
 
@@ -124,15 +128,21 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
     function refund(uint256 id) external nonReentrant {
         ListingInfo storage listing =  _listingInfos[id];
         require(listing.state == ListingState.Canceled, "BabylonCore: Listing state should be canceled to refund");
-        Participation storage participation = _tickets[msg.sender][id];
-        require(!participation.refunded, "BabylonCore: Already refunded");
 
-        uint256 amount = participation.amount * listing.price;
-        (bool sent, ) = payable(listing.creator).call{value: amount}("");
+        uint256 tickets = IBabylonMintPass(listing.mintPass).burn(msg.sender);
 
-        if (sent) {
-            participation.refunded = true;
-        }
+        uint256 amount = tickets * listing.price;
+        (bool sent, ) = payable(msg.sender).call{value: amount}("");
+
+        require(sent, "BabylonCore: Unable to send ETH");
+    }
+
+    function mintEdition(uint256 id) external nonReentrant {
+        ListingInfo storage listing =  _listingInfos[id];
+        require(listing.state == ListingState.Successful, "BabylonCore: Listing state should be successful");
+
+        uint256 tickets = IBabylonMintPass(listing.mintPass).burn(msg.sender);
+        _editionsExtension.mintEdition(msg.sender, tickets, id);
     }
 
     function resolveClaimer(
@@ -143,12 +153,16 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
         ListingInfo storage listing =  _listingInfos[id];
         require(listing.state == ListingState.Resolving, "BabylonCore: Listing state should be resolving");
         uint256 claimerIndex = random % listing.totalTickets;
-        address claimer = _participantsByIndex[id][claimerIndex];
+        address claimer = IBabylonMintPass(listing.mintPass).ownerOf(claimerIndex);
         listing.claimer = claimer;
         listing.state = ListingState.Successful;
-        _tokensController.sendToken(listing.item, listing.creator, claimer);
+        _tokensController.sendItem(listing.item, listing.creator, claimer);
 
         emit ListingSuccessful(id, claimer);
+    }
+
+    function setMintPassBaseURI(string calldata mintPassBaseURI) external onlyOwner {
+        _mintPassBaseURI = mintPassBaseURI;
     }
 
     function getLastListingId() external view returns (uint256) {
@@ -163,10 +177,6 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
         return _listingInfos[id];
     }
 
-    function getParticipation(address participant, uint256 id) external view returns (Participation memory) {
-        return _tickets[participant][id];
-    }
-
     function getTokensController() external view returns (ITokensController) {
         return _tokensController;
     }
@@ -175,8 +185,7 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
         return _randomProvider;
     }
 
-    //will be removed, only for tests
-    function getParticipantById(uint256 listingId, uint256 participantIndex) external view returns (address) {
-        return _participantsByIndex[listingId][participantIndex];
+    function getMintPassBaseURI() external view returns (string memory) {
+        return _mintPassBaseURI;
     }
 }

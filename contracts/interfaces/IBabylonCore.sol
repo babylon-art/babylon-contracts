@@ -8,11 +8,6 @@ interface IBabylonCore {
         ERC1155
     }
 
-    struct Participation {
-        uint256 amount;
-        bool refunded;
-    }
-
     struct ListingItem {
         ItemType itemType;
         address token;
@@ -39,6 +34,7 @@ interface IBabylonCore {
         ListingState state;
         address creator;
         address claimer;
+        address mintPass;
         uint256 randomRequestId;
         uint256 price;
         uint256 timeStart;
@@ -53,6 +49,4 @@ interface IBabylonCore {
     ) external;
 
     function getListingInfo(uint256 id) external view returns (ListingInfo memory);
-
-    function getParticipation(address participant, uint256 id) external view returns (Participation memory);
 }

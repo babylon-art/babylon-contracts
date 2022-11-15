@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: agpl-3.0
 pragma solidity ^0.8.10;
 
-import "../interfaces/IRandomProvider.sol";
-import "../interfaces/IBabylonCore.sol";
+import "./interfaces/IRandomProvider.sol";
+import "./interfaces/IBabylonCore.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@chainlink/contracts/src/v0.8/VRFConsumerBaseV2.sol";
 import "@chainlink/contracts/src/v0.8/interfaces/VRFCoordinatorV2Interface.sol";

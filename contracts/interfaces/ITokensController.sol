@@ -5,10 +5,14 @@ pragma solidity ^0.8.10;
 import "./IBabylonCore.sol";
 
 interface ITokensController {
-    function checkListingPrerequisites(
+    function createMintPass(
+        uint256 listingId
+    ) external returns (address);
+
+    function checkApproval(
         address creator,
         IBabylonCore.ListingItem calldata item
     ) external view returns (bool);
 
-    function sendToken(IBabylonCore.ListingItem calldata item, address from, address to) external;
+    function sendItem(IBabylonCore.ListingItem calldata item, address from, address to) external;
 }
