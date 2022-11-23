@@ -13,7 +13,7 @@ contract RandomProvider is IRandomProvider, Ownable, VRFConsumerBaseV2 {
 
     struct RequestStatus {
         bool exists; // whether a requestId exists
-        bool fulfilled; // whether the request has been successfully fulfilled
+        uint256 requestTimestamp; // timestamp of a request
         uint256 listingId; //to which listing request corresponds
     }
 
@@ -31,12 +31,14 @@ contract RandomProvider is IRandomProvider, Ownable, VRFConsumerBaseV2 {
 
     constructor(
         IBabylonCore babylonCore_,
-        uint64 subscriptionId_
-    ) VRFConsumerBaseV2(0x2Ca8E0C643bDe4C2E08ab1fA0da3401AdAD7734D) {
-        VRF_COORDINATOR = VRFCoordinatorV2Interface(0x2Ca8E0C643bDe4C2E08ab1fA0da3401AdAD7734D);
-        keyHash = 0x79d3d8832d904592c0bf9818b621522c988bb8b0c05cdc3b15aea1b6e8db0c15;
-        _babylonCore = babylonCore_;
+        address vrfCoordinator_,
+        uint64 subscriptionId_,
+        bytes32 keyHash_
+    ) VRFConsumerBaseV2(vrfCoordinator_) {
+        VRF_COORDINATOR = VRFCoordinatorV2Interface(vrfCoordinator_);
+        keyHash = keyHash_;
         subscriptionId = subscriptionId_;
+        _babylonCore = babylonCore_;
     }
 
     function setCore(IBabylonCore babylonCore) external onlyOwner {
@@ -45,9 +47,17 @@ contract RandomProvider is IRandomProvider, Ownable, VRFConsumerBaseV2 {
 
     function fulfillRandomWords(uint256 _requestId, uint256[] memory randomWords) internal override {
         require(requests[_requestId].exists, 'RandomProvider: requestId not found');
-        requests[_requestId].fulfilled = true;
         _babylonCore.resolveClaimer(requests[_requestId].listingId, randomWords[0]);
         emit RequestFulfilled(_requestId, requests[_requestId].listingId, randomWords);
+    }
+
+    function isRequestOverdue(
+        uint256 requestId
+    ) external view override returns (bool) {
+        if (block.timestamp > requests[requestId].requestTimestamp + 1 days) {
+            return true;
+        }
+        return false;
     }
 
     function requestRandom(
@@ -61,7 +71,7 @@ contract RandomProvider is IRandomProvider, Ownable, VRFConsumerBaseV2 {
             NUM_WORDS
         );
 
-        requests[requestId] = RequestStatus({exists: true, fulfilled: false, listingId: listingId});
+        requests[requestId] = RequestStatus({exists: true, requestTimestamp: block.timestamp, listingId: listingId});
         emit RequestSent(requestId, listingId);
         return requestId;
     }

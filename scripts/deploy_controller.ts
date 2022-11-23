@@ -6,8 +6,8 @@ async function main() {
 
     [deployer] = await ethers.getSigners();
 
-    let core = "0x0c32C1E4397a5B1BF73741b6B923f9313e9f4ecd";
-    let mintPassImpl = "0x8062e4902b5D7bBEDC1790306763Eeb75346E587";
+    let core = "0x4b40E4AC3d17b81341A506c064cbacb808548474";
+    let mintPassImpl = "0xA4e8261961565290A757EB699AA6E96DBD8b147B";
 
     const controllerFactory = await ethers.getContractFactory("TokensController", deployer);
 

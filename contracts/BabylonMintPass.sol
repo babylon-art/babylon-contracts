@@ -8,8 +8,8 @@ import "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721Enumer
 contract BabylonMintPass is ERC721EnumerableUpgradeable, OwnableUpgradeable {
     using StringsUpgradeable for uint256;
 
-    string public baseExtension = ".json";
     uint256 public listingId;
+    string public constant BASE_EXTENSION = ".json";
 
     function initialize(
         uint256 listingId_,
@@ -41,10 +41,15 @@ contract BabylonMintPass is ERC721EnumerableUpgradeable, OwnableUpgradeable {
         require(balance > 0, "BabylonMintPass: cannot burn 0 tokens");
         uint256 tokenToBurn;
 
-        for (uint256 i = 0; i < balance; i++) {
-            tokenToBurn = tokenOfOwnerByIndex(from, i);
-            _burn(tokenToBurn);
+        if (balance > 1) {
+            for (uint256 i = balance - 1; i > 0; i--) {
+                tokenToBurn = tokenOfOwnerByIndex(from, i);
+                _burn(tokenToBurn);
+            }
         }
+
+        tokenToBurn = tokenOfOwnerByIndex(from, 0);
+        _burn(tokenToBurn);
 
         return balance;
     }
@@ -68,7 +73,7 @@ contract BabylonMintPass is ERC721EnumerableUpgradeable, OwnableUpgradeable {
                 listingId.toString(),
                 "/",
                 tokenId.toString(),
-                baseExtension
+                BASE_EXTENSION
             )
         )
         : "";

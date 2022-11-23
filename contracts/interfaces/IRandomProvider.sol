@@ -3,6 +3,10 @@
 pragma solidity ^0.8.10;
 
 interface IRandomProvider {
+    function isRequestOverdue(
+        uint256 requestId
+    ) external view returns (bool);
+
     function requestRandom(
         uint256 listingId
     ) external returns (uint256);

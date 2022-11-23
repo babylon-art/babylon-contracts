@@ -6,10 +6,10 @@ async function main() {
 
     [deployer] = await ethers.getSigners();
 
-    let coreAddress = "0x0c32C1E4397a5B1BF73741b6B923f9313e9f4ecd";
-    let controllerAddress = "0x4966BFee3dD9475eB0A1A51DdE5dA5c9b5A57Bb7";
-    let providerAddress = "0xcF815E26aAE167FfE4Bd5B1E51C9a5a289A9aA4a";
-    let editionsExtension = "0xcE2F4e9C374B7BA5a2B2dEA15640152668A4C9b3";
+    let coreAddress = "0x4b40E4AC3d17b81341A506c064cbacb808548474";
+    let controllerAddress = "0xDa77eC8b561202D66B8c6F98f8bD03a28450F084";
+    let providerAddress = "0x7dCFaA0379fDc62396341F7f80dCD494d8453f20";
+    let editionsExtension = "0x90544E095f4508dC5cae3a4805fD3C7c3cECA5a6";
 
     const core = await ethers.getContractAt("BabylonCore", coreAddress, deployer);
     let tx = await core.initialize(controllerAddress, providerAddress, editionsExtension);

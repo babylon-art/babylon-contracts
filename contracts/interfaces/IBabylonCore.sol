@@ -40,7 +40,6 @@ interface IBabylonCore {
         uint256 timeStart;
         uint256 totalTickets;
         uint256 currentTickets;
-        uint256 blockOfCreation;
     }
 
     function resolveClaimer(

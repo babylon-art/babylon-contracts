@@ -6,7 +6,7 @@ async function main() {
 
     [deployer] = await ethers.getSigners();
 
-    let babylonCore = "0x0c32C1E4397a5B1BF73741b6B923f9313e9f4ecd";
+    let babylonCore = "0x4b40E4AC3d17b81341A506c064cbacb808548474";
     let manifoldCreatorCore = "0x535f5d15BD9b978d932A463522A9075C3eDD30fF";
 
     const editionsFactory = await ethers.getContractFactory("BabylonEditionsExtension", deployer);

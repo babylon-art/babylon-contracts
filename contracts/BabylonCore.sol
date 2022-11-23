@@ -73,7 +73,6 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
         listing.timeStart = timeStart;
         listing.totalTickets = totalTickets;
         listing.price = price;
-        listing.blockOfCreation = block.number;
         _lastListingId = newListingId;
 
         emit ListingStarted(newListingId, msg.sender, item.token, item.identifier, mintPass);
@@ -104,8 +103,17 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
 
     function cancelListing(uint256 id) external {
         ListingInfo storage listing =  _listingInfos[id];
-        require(listing.state == ListingState.Active, "BabylonCore: Listing state should be active");
+        if (listing.state == ListingState.Resolving) {
+            require(
+                !_randomProvider.isRequestOverdue(listing.randomRequestId),
+                    "BabylonCore: Random is not overdue"
+            );
+        } else {
+            require(listing.state == ListingState.Active, "BabylonCore: Listing state should be active");
+        }
+
         require(msg.sender == listing.creator, "BabylonCore: Only listing creator can cancel");
+
         listing.state = ListingState.Canceled;
 
         emit ListingCanceled(id);
@@ -137,9 +145,13 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
         require(sent, "BabylonCore: Unable to send ETH");
     }
 
-    function mintEdition(uint256 id) external nonReentrant {
+    function mintEdition(uint256 id) external {
         ListingInfo storage listing =  _listingInfos[id];
-        require(listing.state == ListingState.Successful, "BabylonCore: Listing state should be successful");
+        require(
+            listing.state == ListingState.Successful ||
+            listing.state == ListingState.Finalized,
+                "BabylonCore: Listing should be successful"
+        );
 
         uint256 tickets = IBabylonMintPass(listing.mintPass).burn(msg.sender);
         _editionsExtension.mintEdition(msg.sender, tickets, id);
@@ -183,6 +195,10 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
 
     function getRandomProvider() external view returns (IRandomProvider) {
         return _randomProvider;
+    }
+
+    function getEditionsExtension() external view returns (IEditionsExtension) {
+        return _editionsExtension;
     }
 
     function getMintPassBaseURI() external view returns (string memory) {

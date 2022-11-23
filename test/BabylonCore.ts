@@ -6,9 +6,15 @@ import {SignerWithAddress} from '@nomiclabs/hardhat-ethers/signers';
 import {solidity} from 'ethereum-waffle';
 
 import {
+    balanceOfETH,
     NFT_COLLECTION,
+    EDITIONS_COLLECTION,
+    VRF_COORDINATOR,
+    VRF_SUBSCRIPTION_ID,
+    VRF_KEYHASH
 } from './utils';
-import {IBabylonCore} from "../typechain/contracts/babylon/BabylonCore";
+
+import {IBabylonCore} from "../typechain";
 
 const { ethers } = hre;
 
@@ -20,8 +26,11 @@ let deployer: SignerWithAddress,
     user2: SignerWithAddress;
 
 let core: Contract, coreFactory;
+let mintPass: Contract, mintPassFactory;
 let controller: Contract, controllerFactory;
-let randomProvider: Contract, randomProviderFactory;
+let editionsExtension: Contract, editionsExtensionFactory;
+let mockRandomProvider: Contract, mockRandomProviderFactory;
+let manifoldCreator: Contract;
 
 let nft: Contract;
 
@@ -34,28 +43,40 @@ describe('BabylonCore', function () {
             core = await coreFactory.deploy();
             await core.deployed();
 
+            mintPassFactory = await ethers.getContractFactory("BabylonMintPass", deployer);
+            mintPass = await mintPassFactory.deploy();
+
             controllerFactory = await ethers.getContractFactory('TokensController', deployer);
-            controller = await controllerFactory.deploy();
+            controller = await controllerFactory.deploy(core.address, mintPass.address);
             await controller.deployed();
 
-            randomProviderFactory = await ethers.getContractFactory('RandomProvider', deployer);
+            editionsExtensionFactory = await ethers.getContractFactory("BabylonEditionsExtension", deployer);
+            editionsExtension = await editionsExtensionFactory.deploy(EDITIONS_COLLECTION, core.address);
+            await editionsExtension.deployed();
 
-            //TODO test without real random
-            randomProvider = await randomProviderFactory.deploy(core.address, 0);
-            await randomProvider.deployed();
+            manifoldCreator = await ethers.getContractAt("IERC1155CreatorCore", EDITIONS_COLLECTION, deployer);
+            let tx = await manifoldCreator["registerExtension(address,string)"](editionsExtension.address, "");
+            await tx.wait();
+            manifoldCreator = await ethers.getContractAt("IERC1155MetadataURI", EDITIONS_COLLECTION, deployer);
+
+            mockRandomProviderFactory = await ethers.getContractFactory('MockRandomProvider', deployer);
+
+            mockRandomProvider = await mockRandomProviderFactory.deploy(core.address);
+            await mockRandomProvider.deployed();
 
             nft = await ethers.getContractAt('IERC721', NFT_COLLECTION, deployer);
         });
 
         it('#initialize', async function () {
-            await core.initialize(controller.address, randomProvider.address);
+            await core.initialize(controller.address, mockRandomProvider.address, editionsExtension.address);
 
             expect(await core.getTokensController()).to.be.equal(controller.address);
-            expect(await core.getRandomProvider()).to.be.equal(randomProvider.address);
+            expect(await core.getRandomProvider()).to.be.equal(mockRandomProvider.address);
+            expect(await core.getEditionsExtension()).to.be.equal(editionsExtension.address);
         });
     });
 
-    describe('#listing 0', function () {
+    describe('#listing 1', function () {
         it('should start listing', async () => {
             let item: IBabylonCore.ListingItemStruct;
             let timeStart = 0;
@@ -63,6 +84,7 @@ describe('BabylonCore', function () {
             let amount = 1;
             let price = ethers.utils.parseUnits("1", 18);
             let totalTickets = 5;
+            let editionURI = "ipfs://CID/metadata.json";
 
             item = {
                 itemType: 0, //ERC721
@@ -71,17 +93,21 @@ describe('BabylonCore', function () {
                 amount: amount
             }
 
+            let owner = await nft.ownerOf(tokenId);
+            expect(owner).to.be.eq(deployer.address);
+
             await nft.approve(controller.address, tokenId);
 
             await core.startListing(
                 item,
                 timeStart,
                 price,
-                totalTickets
+                totalTickets,
+                editionURI
             );
 
             let newId = await core.getListingId(nft.address, tokenId);
-            expect(newId).to.be.eq(0);
+            expect(newId).to.be.eq(1);
 
             let info = await core.getListingInfo(newId);
             expect(info.item.itemType).to.be.eq(0);
@@ -89,16 +115,20 @@ describe('BabylonCore', function () {
             expect(info.item.identifier).to.be.eq(tokenId);
             expect(info.item.amount).to.be.eq(amount);
 
+            expect(info.state).to.be.eq(0);
             expect(info.creator).to.be.eq(deployer.address);
             expect(info.claimer).to.be.eq(ethers.constants.AddressZero);
+            expect(info.randomRequestId).to.be.eq(0);
             expect(info.price).to.be.eq(price);
             expect(info.timeStart).to.be.eq(timeStart);
             expect(info.totalTickets).to.be.eq(totalTickets);
             expect(info.currentTickets).to.be.eq(0);
+
+            mintPass = await ethers.getContractAt("BabylonMintPass", info.mintPass, user1);
         });
 
         it('should participate (3/5 tickets)', async () => {
-            let listingId = 0;
+            let listingId = 1;
             let numTickets = 3;
             let info = await core.getListingInfo(listingId);
             let price = info.price;
@@ -111,24 +141,62 @@ describe('BabylonCore', function () {
                 }
             );
 
-            let participationInfo = await core.getParticipation(user1.address, listingId);
-            expect(participationInfo.amount).to.be.eq(numTickets);
-            expect(participationInfo.refunded).to.be.eq(false);
+            let amount = await mintPass.balanceOf(user1.address);
+            expect(amount).to.be.eq(numTickets);
             info = await core.getListingInfo(listingId);
             expect(info.currentTickets).to.be.eq(numTickets);
-
-            expect(await core.getParticipantById(listingId, 0)).to.be.eq(user1.address);
-            expect(await core.getParticipantById(listingId, 1)).to.be.eq(user1.address);
-            expect(await core.getParticipantById(listingId, 2)).to.be.eq(user1.address);
-            expect(await core.getParticipantById(listingId, 3)).to.be.eq(ethers.constants.AddressZero);
         });
 
-        it('should participate (5/5 tickets)', async () => {
-            let listingId = 0;
+        it('should not participate with more than available tickets', async () => {
+            let listingId = 1;
+            let numTickets = 5;
+            let info = await core.getListingInfo(listingId);
+            let price = info.price;
+
+            await expect(core.connect(user2).participate(
+                listingId,
+                numTickets,
+                {
+                    value: price.mul(numTickets)
+                }
+            )).to.be.revertedWith("BabylonCore: no available tickets");
+        });
+
+        it('should not participate with less ETH total price', async () => {
+            let listingId = 1;
             let numTickets = 2;
             let info = await core.getListingInfo(listingId);
             let price = info.price;
-            console.log(user2.address);
+
+            await expect(core.connect(user2).participate(
+                listingId,
+                numTickets,
+                {
+                    value: price.mul(numTickets - 1)
+                }
+            )).to.be.revertedWith("BabylonCore: msg.value doesn't match price for tickets");
+        });
+
+        it('should not participate with more ETH total price', async () => {
+            let listingId = 1;
+            let numTickets = 2;
+            let info = await core.getListingInfo(listingId);
+            let price = info.price;
+
+            await expect(core.connect(user2).participate(
+                listingId,
+                numTickets,
+                {
+                    value: price.mul(numTickets + 1)
+                }
+            )).to.be.revertedWith("BabylonCore: msg.value doesn't match price for tickets");
+        });
+
+        it('should participate (5/5 tickets)', async () => {
+            let listingId = 1;
+            let numTickets = 2;
+            let info = await core.getListingInfo(listingId);
+            let price = info.price;
 
             await core.connect(user2).participate(
                 listingId,
@@ -138,15 +206,250 @@ describe('BabylonCore', function () {
                 }
             );
 
-            let participationInfo = await core.getParticipation(user2.address, listingId);
-            expect(participationInfo.amount).to.be.eq(numTickets);
-            expect(participationInfo.refunded).to.be.eq(false);
             info = await core.getListingInfo(listingId);
-            expect(info.currentTickets).to.be.eq(info.totalTickets);
+            let amount = await mintPass.balanceOf(user2.address);
 
-            expect(await core.getParticipantById(listingId, 3)).to.be.eq(user2.address);
-            expect(await core.getParticipantById(listingId, 4)).to.be.eq(user2.address);
+            expect(info.state).to.be.eq(1); //Resolving
+            expect(info.currentTickets).to.be.eq(info.totalTickets);
+            expect(amount).to.be.eq(numTickets);
+        });
+
+        it('should fulfill random and get winner', async () => {
+            let listingId = 1;
+
+            await mockRandomProvider.fulfillRandomWords(
+                listingId,
+                [5]
+            );
+
+            let info = await core.getListingInfo(listingId);
+            expect(info.state).to.be.eq(2); //Successful
+            expect(info.claimer).to.be.eq(user1.address); //first participant is the winner
+
+            let tokenId = 1;
+            let owner = await nft.ownerOf(tokenId);
+            expect(owner).to.be.eq(user1.address); //nft prize is successfully transferred to the winner
+        });
+
+        it('creator should not cancel successful listing', async () => {
+            let listingId = 1;
+
+            await expect(core.connect(deployer).cancelListing(listingId))
+                .to.be.revertedWith("BabylonCore: Listing state should be active");
+        });
+
+        it('participant should mint editions', async () => {
+            let listingId = 1;
+            let editionTokenId = await editionsExtension.getEdition(listingId);
+            let amount = await mintPass.balanceOf(user1.address);
+
+            let balance = await manifoldCreator.balanceOf(user1.address, editionTokenId);
+            expect(balance).to.be.eq(0);
+
+            await core.connect(user1).mintEdition(listingId);
+            balance = await manifoldCreator.balanceOf(user1.address, editionTokenId);
+            expect(balance).to.be.eq(amount);
+            amount = await mintPass.balanceOf(user1.address);
+            expect(amount).to.be.eq(0);
+        });
+
+        it('participant should not mint edition if 0 mintpasses', async () => {
+            let listingId = 1;
+            let amount = await mintPass.balanceOf(user1.address);
+            expect(amount).to.be.eq(0);
+
+            await expect(core.connect(user1).mintEdition(listingId))
+                .to.be.revertedWith("BabylonMintPass: cannot burn 0 tokens");
+        });
+
+        it('participant should mint editions with transferred mintpasses', async () => {
+            let listingId = 1;
+            let editionTokenId = await editionsExtension.getEdition(listingId);
+            let amount = await mintPass.balanceOf(user2.address);
+
+            await mintPass.connect(user2)["safeTransferFrom(address,address,uint256)"](user2.address, user1.address, 3);
+            await mintPass.connect(user2)["safeTransferFrom(address,address,uint256)"](user2.address, user1.address, 4);
+
+            let balance = await manifoldCreator.balanceOf(user1.address, editionTokenId);
+
+            await core.connect(user1).mintEdition(listingId);
+            let editions = await manifoldCreator.balanceOf(user1.address, editionTokenId);
+            expect(editions).to.be.eq(amount.add(balance));
+            amount = await mintPass.balanceOf(user1.address);
+            expect(amount).to.be.eq(0);
+        });
+
+        it('participant should not refund if listing is successful', async () => {
+            let listingId = 1;
+            await expect(core.connect(user1).refund(listingId))
+                .to.be.revertedWith("BabylonCore: Listing state should be canceled to refund");
+        });
+
+        it('creator should receive funds and finalize listing', async () => {
+            let listingId = 1;
+            let info = await core.getListingInfo(listingId);
+            expect(info.state).to.be.eq(2); //Successful
+            let ethBalanceBefore = await balanceOfETH(deployer.address);
+
+            await core.transferETHToCreator(listingId);
+
+            info = await core.getListingInfo(listingId);
+            let ethBalanceAfter = await balanceOfETH(deployer.address);
+            expect(info.state).to.be.eq(3); //Finalized
+            expect(ethBalanceAfter).to.be.gt(ethBalanceBefore);
+        });
+
+        it('creator should not receive funds twice', async () => {
+            let listingId = 1;
+            let info = await core.getListingInfo(listingId);
+            expect(info.state).to.be.eq(3); //Finalized
+
+            await expect(core.transferETHToCreator(listingId))
+                .to.be.revertedWith("BabylonCore: Listing state should be successful");
         });
     });
 
+    describe('#listing 2', function () {
+        it('should start listing', async () => {
+            let item: IBabylonCore.ListingItemStruct;
+            let timeStart = 0;
+            let tokenId = 2;
+            let amount = 1;
+            let price = ethers.utils.parseUnits("2", 18);
+            let totalTickets = 10;
+            let editionURI = "ipfs://CID/metadata.json";
+
+            item = {
+                itemType: 0, //ERC721
+                token: nft.address,
+                identifier: tokenId,
+                amount: amount
+            }
+
+            let owner = await nft.ownerOf(tokenId);
+            expect(owner).to.be.eq(user1.address);
+
+            await nft.connect(user1).approve(controller.address, tokenId);
+
+            await core.connect(user1).startListing(
+                item,
+                timeStart,
+                price,
+                totalTickets,
+                editionURI
+            );
+
+            let newId = await core.getListingId(nft.address, tokenId);
+            expect(newId).to.be.eq(2);
+
+            let info = await core.getListingInfo(newId);
+            mintPass = await ethers.getContractAt("BabylonMintPass", info.mintPass, user1);
+        });
+
+        it('should participate (2/10 tickets)', async () => {
+            let listingId = 2;
+            let numTickets = 2;
+            let info = await core.getListingInfo(listingId);
+            let price = info.price;
+            expect(info.state).to.be.eq(0); // Active
+
+            await core.connect(user2).participate(
+                listingId,
+                numTickets,
+                {
+                    value: price.mul(numTickets)
+                }
+            );
+
+            let amount = await mintPass.balanceOf(user2.address);
+            expect(amount).to.be.eq(numTickets);
+            info = await core.getListingInfo(listingId);
+            expect(info.currentTickets).to.be.eq(numTickets);
+        });
+
+        it('not creator should not be able to cancel listing', async () => {
+            let listingId = 2;
+            let info = await core.getListingInfo(listingId);
+
+            expect(info.creator).to.be.not.eq(deployer.address);
+
+            await expect(core.connect(deployer).cancelListing(listingId))
+                .to.be.revertedWith("BabylonCore: Only listing creator can cancel");
+        });
+
+        it('creator should cancel listing', async () => {
+            let listingId = 2;
+
+            await core.connect(user1).cancelListing(listingId);
+            let info = await core.getListingInfo(listingId);
+
+            expect(info.state).to.be.eq(4); //Canceled
+        });
+
+        it('should not participate in canceled listing', async () => {
+            let listingId = 2;
+            let numTickets = 2;
+            let info = await core.getListingInfo(listingId);
+            let price = info.price;
+            expect(info.state).to.be.eq(4); // Canceled
+
+            await expect(core.connect(user2).participate(
+                listingId,
+                numTickets,
+                {
+                    value: price.mul(numTickets)
+                }
+            )).to.be.revertedWith("BabylonCore: Listing state should be active");
+        });
+
+        it('participant should not mint editions in canceled listing', async () => {
+            let listingId = 2;
+
+            await expect(core.connect(user1).mintEdition(listingId))
+                .to.be.revertedWith("BabylonCore: Listing should be successful");
+        });
+
+        it('participant should not mint edition if 0 mintpasses', async () => {
+            let listingId = 1;
+            let amount = await mintPass.balanceOf(user1.address);
+            expect(amount).to.be.eq(0);
+
+            await expect(core.connect(user1).mintEdition(listingId))
+                .to.be.revertedWith("BabylonMintPass: cannot burn 0 tokens");
+        });
+
+        it('participant should refund if listing is canceled', async () => {
+            let listingId = 2;
+            let info = await core.getListingInfo(listingId);
+            expect(info.state).to.be.eq(4); //Canceled
+            let amount = await mintPass.balanceOf(user2.address);
+            let ethBalanceBefore = await balanceOfETH(user2.address);
+            expect(amount).to.be.eq(2);
+
+            await core.connect(user2).refund(listingId);
+
+            amount = await mintPass.balanceOf(user2.address);
+            let ethBalanceAfter = await balanceOfETH(user2.address);
+            expect(amount).to.be.eq(0);
+            expect(ethBalanceAfter).to.be.gt(ethBalanceBefore);
+        });
+
+        it('creator should not refund twice', async () => {
+            let listingId = 2;
+            let amount = await mintPass.balanceOf(user2.address);
+            expect(amount).to.be.eq(0);
+
+            await expect(core.connect(user2).refund(listingId))
+                .to.be.revertedWith("BabylonMintPass: cannot burn 0 tokens");
+        });
+
+        it('creator should not receive funds from canceled listing', async () => {
+            let listingId = 2;
+            let info = await core.getListingInfo(listingId);
+            expect(info.state).to.be.eq(4); //Canceled
+
+            await expect(core.transferETHToCreator(listingId))
+                .to.be.revertedWith("BabylonCore: Listing state should be successful");
+        });
+    });
 })
