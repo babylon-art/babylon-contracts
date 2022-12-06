@@ -25,7 +25,7 @@ const config: HardhatUserConfig = {
     solidity: {
         compilers: [
             {
-                version: "0.8.10",
+                version: "0.8.17",
                 settings: {
                     optimizer: {
                         enabled: true,
@@ -40,7 +40,7 @@ const config: HardhatUserConfig = {
             forking: {
                 enabled: true,
                 url: `https://eth-goerli.g.alchemy.com/v2/${ALCHEMY_GOERLI_KEY}`,
-                blockNumber: 7995175
+                blockNumber: 8080000
             },
             accounts: [
                 {

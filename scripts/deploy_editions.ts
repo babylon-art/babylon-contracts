@@ -6,19 +6,14 @@ async function main() {
 
     [deployer] = await ethers.getSigners();
 
-    let babylonCore = "0x4b40E4AC3d17b81341A506c064cbacb808548474";
-    let manifoldCreatorCore = "0x535f5d15BD9b978d932A463522A9075C3eDD30fF";
+    let babylonCore = "0xEbD86a050D5F60a94B84dd4406B6E962c3270D4d";
+    let operatorFilterer = "0x851b63Bf5f575eA68A84baa5Ff9174172E4d7838";
 
     const editionsFactory = await ethers.getContractFactory("BabylonEditionsExtension", deployer);
-    const editions = await editionsFactory.deploy(manifoldCreatorCore, babylonCore);
+    const editions = await editionsFactory.deploy(babylonCore, operatorFilterer);
 
     await editions.deployed();
     console.log(`BabylonEditionsExtension deployed at: ${editions.address}`);
-
-    let creatorCore = await ethers.getContractAt("IERC1155CreatorCore", manifoldCreatorCore, deployer);
-    let tx = await creatorCore["registerExtension(address,string)"](editions.address, "");
-    await tx.wait();
-    console.log("Editions Extension registered to the CreatorCore");
 }
 
 main()

@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: agpl-3.0
-pragma solidity ^0.8.10;
+pragma solidity ^0.8.0;
 
 import "../interfaces/IRandomProvider.sol";
 import "../interfaces/IBabylonCore.sol";
+import "@openzeppelin/contracts/token/ERC721/extensions/IERC721Metadata.sol";
 
 contract MockRandomProvider is IRandomProvider {
     uint256 public lastRequestId;

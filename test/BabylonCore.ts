@@ -9,6 +9,7 @@ import {
     balanceOfETH,
     NFT_COLLECTION,
     EDITIONS_COLLECTION,
+    OPERATOR_FILTERER,
     VRF_COORDINATOR,
     VRF_SUBSCRIPTION_ID,
     VRF_KEYHASH
@@ -51,13 +52,8 @@ describe('BabylonCore', function () {
             await controller.deployed();
 
             editionsExtensionFactory = await ethers.getContractFactory("BabylonEditionsExtension", deployer);
-            editionsExtension = await editionsExtensionFactory.deploy(EDITIONS_COLLECTION, core.address);
+            editionsExtension = await editionsExtensionFactory.deploy(core.address, OPERATOR_FILTERER);
             await editionsExtension.deployed();
-
-            manifoldCreator = await ethers.getContractAt("IERC1155CreatorCore", EDITIONS_COLLECTION, deployer);
-            let tx = await manifoldCreator["registerExtension(address,string)"](editionsExtension.address, "");
-            await tx.wait();
-            manifoldCreator = await ethers.getContractAt("IERC1155MetadataURI", EDITIONS_COLLECTION, deployer);
 
             mockRandomProviderFactory = await ethers.getContractFactory('MockRandomProvider', deployer);
 
@@ -68,11 +64,30 @@ describe('BabylonCore', function () {
         });
 
         it('#initialize', async function () {
-            await core.initialize(controller.address, mockRandomProvider.address, editionsExtension.address);
+            let minTotalPrice = ethers.utils.parseUnits("0.1", 18);
+            let totalFeesCeiling = ethers.utils.parseUnits("1", 18);
+            let feeMultiplier = 10; // 1%
+            let treasury = deployer.address;
+
+            await core.initialize(
+                controller.address,
+                mockRandomProvider.address,
+                editionsExtension.address,
+                minTotalPrice,
+                totalFeesCeiling,
+                feeMultiplier,
+                treasury
+            );
 
             expect(await core.getTokensController()).to.be.equal(controller.address);
             expect(await core.getRandomProvider()).to.be.equal(mockRandomProvider.address);
             expect(await core.getEditionsExtension()).to.be.equal(editionsExtension.address);
+            expect(await core.getMinTotalPrice()).to.be.equal(minTotalPrice);
+            expect(await core.getTotalFeesCeiling()).to.be.equal(totalFeesCeiling);
+            expect(await core.getFeeMultiplier()).to.be.equal(feeMultiplier);
+            expect(await core.getTreasury()).to.be.equal(treasury);
+            expect(await core.BASIS_POINTS()).to.be.equal(1000);
+            expect(await core.MAX_FEE_MULTIPLIER()).to.be.equal(25);
         });
     });
 
@@ -84,6 +99,7 @@ describe('BabylonCore', function () {
             let amount = 1;
             let price = ethers.utils.parseUnits("1", 18);
             let totalTickets = 5;
+            let editionRoyaltiesBps = 1000; //10%
             let editionURI = "ipfs://CID/metadata.json";
 
             item = {
@@ -103,6 +119,7 @@ describe('BabylonCore', function () {
                 timeStart,
                 price,
                 totalTickets,
+                editionRoyaltiesBps,
                 editionURI
             );
 
@@ -125,6 +142,8 @@ describe('BabylonCore', function () {
             expect(info.currentTickets).to.be.eq(0);
 
             mintPass = await ethers.getContractAt("BabylonMintPass", info.mintPass, user1);
+            let editionsCollection = await editionsExtension.getEditionsCollection(newId);
+            manifoldCreator = await ethers.getContractAt("IERC721Metadata", editionsCollection, deployer);
         });
 
         it('should participate (3/5 tickets)', async () => {
@@ -240,14 +259,13 @@ describe('BabylonCore', function () {
 
         it('participant should mint editions', async () => {
             let listingId = 1;
-            let editionTokenId = await editionsExtension.getEdition(listingId);
             let amount = await mintPass.balanceOf(user1.address);
 
-            let balance = await manifoldCreator.balanceOf(user1.address, editionTokenId);
+            let balance = await manifoldCreator.balanceOf(user1.address);
             expect(balance).to.be.eq(0);
 
             await core.connect(user1).mintEdition(listingId);
-            balance = await manifoldCreator.balanceOf(user1.address, editionTokenId);
+            balance = await manifoldCreator.balanceOf(user1.address);
             expect(balance).to.be.eq(amount);
             amount = await mintPass.balanceOf(user1.address);
             expect(amount).to.be.eq(0);
@@ -264,16 +282,15 @@ describe('BabylonCore', function () {
 
         it('participant should mint editions with transferred mintpasses', async () => {
             let listingId = 1;
-            let editionTokenId = await editionsExtension.getEdition(listingId);
             let amount = await mintPass.balanceOf(user2.address);
 
             await mintPass.connect(user2)["safeTransferFrom(address,address,uint256)"](user2.address, user1.address, 3);
             await mintPass.connect(user2)["safeTransferFrom(address,address,uint256)"](user2.address, user1.address, 4);
 
-            let balance = await manifoldCreator.balanceOf(user1.address, editionTokenId);
+            let balance = await manifoldCreator.balanceOf(user1.address);
 
             await core.connect(user1).mintEdition(listingId);
-            let editions = await manifoldCreator.balanceOf(user1.address, editionTokenId);
+            let editions = await manifoldCreator.balanceOf(user1.address);
             expect(editions).to.be.eq(amount.add(balance));
             amount = await mintPass.balanceOf(user1.address);
             expect(amount).to.be.eq(0);
@@ -317,6 +334,7 @@ describe('BabylonCore', function () {
             let amount = 1;
             let price = ethers.utils.parseUnits("2", 18);
             let totalTickets = 10;
+            let editionRoyaltiesBps = 1000; //10%
             let editionURI = "ipfs://CID/metadata.json";
 
             item = {
@@ -336,6 +354,7 @@ describe('BabylonCore', function () {
                 timeStart,
                 price,
                 totalTickets,
+                editionRoyaltiesBps,
                 editionURI
             );
 

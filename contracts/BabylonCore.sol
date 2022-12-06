@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: agpl-3.0
-pragma solidity ^0.8.10;
+pragma solidity ^0.8.0;
 pragma abicoder v2;
 
 import "./interfaces/IBabylonCore.sol";
@@ -19,10 +19,18 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
     //listing ids start from 1st, not 0
     uint256 internal _lastListingId;
 
+    uint256 internal _minTotalPrice;
+    uint256 internal _totalFeesCeiling;
+    uint256 internal _feeMultiplier;
+    address internal _treasury;
+
     // collection address -> tokenId -> id of a listing
     mapping(address => mapping(uint256 => uint256)) internal _ids;
     // id of a listing -> a listing info
     mapping(uint256 => ListingInfo) internal _listingInfos;
+
+    uint256 public constant BASIS_POINTS = 1000;
+    uint256 public constant MAX_FEE_MULTIPLIER = 25; //2.5%
 
     event NewParticipant(uint256 listingId, address participant, uint256 ticketsAmount);
     event ListingStarted(uint256 listingId, address creator, address token, uint256 tokenId, address mintPass);
@@ -34,7 +42,11 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
     function initialize(
         ITokensController tokensController,
         IRandomProvider randomProvider,
-        IEditionsExtension editionsExtension
+        IEditionsExtension editionsExtension,
+        uint256 minTotalPrice,
+        uint256 totalFeesCeiling,
+        uint256 feeMultiplier,
+        address treasury
     ) public initializer {
         __Context_init_unchained();
         __Ownable_init_unchained();
@@ -42,6 +54,10 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
         _tokensController = tokensController;
         _randomProvider = randomProvider;
         _editionsExtension = editionsExtension;
+        _minTotalPrice = minTotalPrice;
+        _totalFeesCeiling = totalFeesCeiling;
+        _feeMultiplier = feeMultiplier;
+        _treasury = treasury;
         transferOwnership(msg.sender);
     }
 
@@ -50,20 +66,20 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
         uint256 timeStart,
         uint256 price,
         uint256 totalTickets,
+        uint256 editionsRoyaltiesBps,
         string calldata editionURI
     ) external {
-        require(price > 0, "BabylonCore: Price of one ticket is too low");
         require(totalTickets > 0, "BabylonCore: Number of tickets is too low");
+        require(price * totalTickets >= _minTotalPrice, "BabylonCore: Total price of tickets is too low");
 
         require(
             _tokensController.checkApproval(msg.sender, item),
             "BabylonCore: Token should be owned and approved to the controller"
         );
 
-
         uint256 newListingId = _lastListingId + 1;
         address mintPass = _tokensController.createMintPass(newListingId);
-        _editionsExtension.registerEdition(msg.sender, newListingId, editionURI);
+        _editionsExtension.registerEdition(msg.sender, newListingId, editionsRoyaltiesBps, editionURI);
         _ids[item.token][item.identifier] = newListingId;
         ListingInfo storage listing = _listingInfos[newListingId];
         listing.item = item;
@@ -73,6 +89,7 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
         listing.timeStart = timeStart;
         listing.totalTickets = totalTickets;
         listing.price = price;
+        listing.creationTimestamp = block.timestamp;
         _lastListingId = newListingId;
 
         emit ListingStarted(newListingId, msg.sender, item.token, item.identifier, mintPass);
@@ -124,11 +141,19 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
         require(listing.state == ListingState.Successful, "BabylonCore: Listing state should be successful");
 
         uint256 amount = listing.totalTickets * listing.price;
-        (bool sent, ) = payable(listing.creator).call{value: amount}("");
+        uint256 fee = amount * _feeMultiplier / BASIS_POINTS;
+
+        if (fee > _totalFeesCeiling) {
+            fee = _totalFeesCeiling;
+        }
+
+        uint256 creatorPayout = amount - fee;
+        (bool sent, ) = payable(listing.creator).call{value: creatorPayout}("");
 
         if (sent) {
             listing.state = ListingState.Finalized;
-
+            (sent, ) = payable(_treasury).call{value: fee}("");
+            require(sent);
             emit ListingFinalized(id);
         }
     }
@@ -154,7 +179,7 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
         );
 
         uint256 tickets = IBabylonMintPass(listing.mintPass).burn(msg.sender);
-        _editionsExtension.mintEdition(msg.sender, tickets, id);
+        _editionsExtension.mintEdition(id, msg.sender, tickets);
     }
 
     function resolveClaimer(
@@ -177,8 +202,41 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
         _mintPassBaseURI = mintPassBaseURI;
     }
 
+    function setMinTotalPrice(uint256 minTotalPrice) external onlyOwner {
+        _minTotalPrice = minTotalPrice;
+    }
+
+    function setTotalFeesCeiling(uint256 totalFeesCeiling) external onlyOwner {
+        _totalFeesCeiling = totalFeesCeiling;
+    }
+
+    function setFeeMultiplier(uint256 feeMultiplier) external onlyOwner {
+        require(_feeMultiplier <= MAX_FEE_MULTIPLIER, 'BabylonCore: New fee multiplier is too high');
+        _feeMultiplier = feeMultiplier;
+    }
+
+    function setTreasury(address treasury) external onlyOwner {
+        _treasury = treasury;
+    }
+
     function getLastListingId() external view returns (uint256) {
         return _lastListingId;
+    }
+
+    function getMinTotalPrice() external view returns (uint256) {
+        return _minTotalPrice;
+    }
+
+    function getTotalFeesCeiling() external view returns (uint256) {
+        return _totalFeesCeiling;
+    }
+
+    function getFeeMultiplier() external view returns (uint256) {
+        return _feeMultiplier;
+    }
+
+    function getTreasury() external view returns (address) {
+        return _treasury;
     }
 
     function getListingId(address token, uint256 tokenId) external view returns (uint256) {

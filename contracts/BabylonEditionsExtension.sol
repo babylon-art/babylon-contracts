@@ -1,75 +1,89 @@
 // SPDX-License-Identifier: agpl-3.0
-pragma solidity ^0.8.10;
+pragma solidity ^0.8.0;
 
 import "./interfaces/IBabylonCore.sol";
+import "./editions/BabylonEditions.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/token/ERC1155/extensions/IERC1155MetadataURI.sol";
-import "@manifoldxyz/creator-core-solidity/contracts/core/IERC1155CreatorCore.sol";
+import "@manifoldxyz/creator-core-solidity/contracts/core/IERC721CreatorCore.sol";
+import "@manifoldxyz/creator-core-solidity/contracts/extensions/ICreatorExtensionTokenURI.sol";
 
-contract BabylonEditionsExtension is Ownable {
-    address internal _creatorCore;
+contract BabylonEditionsExtension is Ownable, ICreatorExtensionTokenURI {
     address internal _babylonCore;
+    address internal _operatorFilterer;
 
-    // id of a listing -> tokenId
-    mapping(uint256 => uint256) internal _editions;
+    // id of a listing -> collection address
+    mapping(uint256 => address) internal _editions;
 
-    event EditionRegistered(uint256 listingId, uint256 tokenId);
-    event EditionMinted(uint256 listingId, uint256 tokenId, uint256 amount);
+    // Mapping for token URIs of Editions collections
+    mapping(address => string) internal _editionURIs;
+
+    // Max royalties basis points is 1000 (10%)
+    uint256 constant MAX_ROYALTIES_BPS = 1000;
+
+    event EditionRegistered(uint256 listingId, address editionsCollection, address newOwner, string editionsURI);
+    event EditionMinted(uint256 listingId, address editionsCollection, address receiver, uint256 amount);
 
     constructor(
-        address creatorCore_,
-        address babylonCore_
+        address babylonCore_,
+        address operatorFilterer
     ) {
-        _creatorCore = creatorCore_;
         _babylonCore = babylonCore_;
+        _operatorFilterer = operatorFilterer;
     }
 
-    function registerEdition(address creator, uint256 listingId, string calldata editionURI) external {
+    function registerEdition(
+        address creator,
+        uint256 listingId,
+        uint256 royaltiesBps,
+        string calldata editionURI
+    ) external {
         require(msg.sender == _babylonCore, "BabylonEditionsExtension: Only BabylonCore can register");
-        require(_editions[listingId] == 0, "BabylonEditionsExtension: Edition already registered for this listing");
+        require(_editions[listingId] == address(0), "BabylonEditionsExtension: Edition already registered for this listing");
+        require(royaltiesBps <= MAX_ROYALTIES_BPS, "BabylonEditionsExtension: Royalties BPS too high");
 
-        address[] memory to = new address[](1);
-        to[0] = creator;
-        uint[] memory amounts = new uint[](1);
-        amounts[0] = 1;
-        string[] memory uris = new string[](1);
-        uris[0] = editionURI;
+        address newEditions = address(new BabylonEditions());
+        IERC721CreatorCore(newEditions).setApproveTransfer(_operatorFilterer);
+        address payable[] memory receivers = new address payable[](1);
+        receivers[0] = payable(creator);
+        uint256[] memory basisPoints = new uint256[](1);
+        basisPoints[0] = royaltiesBps;
+        IERC721CreatorCore(newEditions).setRoyalties(receivers, basisPoints);
+        IERC721CreatorCore(newEditions).registerExtension(address(this), "");
+        Ownable(newEditions).transferOwnership(creator);
 
-        uint256[] memory ids = IERC1155CreatorCore(_creatorCore).mintExtensionNew(to, amounts, uris);
-        _editions[listingId] = ids[0];
+        _editions[listingId] = newEditions;
+        _editionURIs[newEditions] = editionURI;
 
-        emit EditionRegistered(listingId, ids[0]);
+        emit EditionRegistered(listingId, newEditions, creator, editionURI);
     }
 
-    function mintEdition(address receiver, uint256 amount, uint256 listingId) external {
+    function mintEdition(uint256 listingId, address receiver, uint256 amount) external {
         require(msg.sender == _babylonCore, "BabylonEditionsExtension: Only BabylonCore can mint");
-        require(_editions[listingId] != 0, "BabylonEditionsExtension: Edition should exist for this listing");
+        address editionsCollection = _editions[listingId];
+        require(editionsCollection != address(0), "BabylonEditionsExtension: Edition should exist for this listing");
 
-        address[] memory to = new address[](1);
-        to[0] = receiver;
-        uint[] memory tokenIds = new uint[](1);
-        tokenIds[0] = _editions[listingId];
-        uint[] memory amounts = new uint[](1);
-        amounts[0] = amount;
+        IERC721CreatorCore(editionsCollection).mintExtensionBatch(receiver, uint16(amount));
 
-        IERC1155CreatorCore(_creatorCore).mintExtensionExisting(to, tokenIds, amounts);
-
-        emit EditionMinted(listingId, _editions[listingId], amounts[0]);
+        emit EditionMinted(listingId, editionsCollection, receiver, amount);
     }
 
-    function getEdition(uint256 listingId) external view returns (uint256) {
+    function getEditionsCollection(uint256 listingId) external view returns (address) {
         return _editions[listingId];
     }
 
     function getEditionURI(uint256 listingId) external view returns (string memory) {
-        return IERC1155MetadataURI(_creatorCore).uri(_editions[listingId]);
+        return _editionURIs[_editions[listingId]];
     }
 
     function getBabylonCore() external view returns (address) {
         return _babylonCore;
     }
 
-    function getManifoldCreatorCore() external view returns (address) {
-        return _creatorCore;
+    function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
+        return interfaceId == type(ICreatorExtensionTokenURI).interfaceId || interfaceId == type(IERC165).interfaceId;
+    }
+
+    function tokenURI(address core, uint256 tokenId) external view override returns (string memory) {
+        return _editionURIs[core];
     }
 }
