@@ -23,14 +23,13 @@ contract RandomProvider is IRandomProvider, Ownable, VRFConsumerBaseV2 {
     uint64 immutable subscriptionId;
     bytes32 immutable keyHash;
 
-    IBabylonCore internal _babylonCore;
+    IBabylonCore internal _core;
 
     uint32 constant CALLBACK_GAS_LIMIT = 500000;
     uint16 constant REQUEST_CONFIRMATIONS = 3;
     uint16 constant NUM_WORDS = 1;
 
     constructor(
-        IBabylonCore babylonCore_,
         address vrfCoordinator_,
         uint64 subscriptionId_,
         bytes32 keyHash_
@@ -38,16 +37,19 @@ contract RandomProvider is IRandomProvider, Ownable, VRFConsumerBaseV2 {
         VRF_COORDINATOR = VRFCoordinatorV2Interface(vrfCoordinator_);
         keyHash = keyHash_;
         subscriptionId = subscriptionId_;
-        _babylonCore = babylonCore_;
     }
 
-    function setCore(IBabylonCore babylonCore) external onlyOwner {
-        _babylonCore = babylonCore;
+    function getBabylonCore() external view returns (address) {
+        return address(_core);
+    }
+
+    function setBabylonCore(IBabylonCore core) external onlyOwner {
+        _core = core;
     }
 
     function fulfillRandomWords(uint256 _requestId, uint256[] memory randomWords) internal override {
         require(requests[_requestId].exists, 'RandomProvider: requestId not found');
-        _babylonCore.resolveClaimer(requests[_requestId].listingId, randomWords[0]);
+        _core.resolveClaimer(requests[_requestId].listingId, randomWords[0]);
         emit RequestFulfilled(_requestId, requests[_requestId].listingId, randomWords);
     }
 
@@ -57,6 +59,7 @@ contract RandomProvider is IRandomProvider, Ownable, VRFConsumerBaseV2 {
         if (block.timestamp > requests[requestId].requestTimestamp + 1 days) {
             return true;
         }
+
         return false;
     }
 

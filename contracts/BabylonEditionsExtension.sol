@@ -8,7 +8,7 @@ import "@manifoldxyz/creator-core-solidity/contracts/core/IERC721CreatorCore.sol
 import "@manifoldxyz/creator-core-solidity/contracts/extensions/ICreatorExtensionTokenURI.sol";
 
 contract BabylonEditionsExtension is Ownable, ICreatorExtensionTokenURI {
-    address internal _babylonCore;
+    address internal _core;
     address internal _operatorFilterer;
 
     // id of a listing -> collection address
@@ -24,10 +24,8 @@ contract BabylonEditionsExtension is Ownable, ICreatorExtensionTokenURI {
     event EditionMinted(uint256 listingId, address editionsCollection, address receiver, uint256 amount);
 
     constructor(
-        address babylonCore_,
         address operatorFilterer
     ) {
-        _babylonCore = babylonCore_;
         _operatorFilterer = operatorFilterer;
     }
 
@@ -37,7 +35,7 @@ contract BabylonEditionsExtension is Ownable, ICreatorExtensionTokenURI {
         uint256 royaltiesBps,
         string calldata editionURI
     ) external {
-        require(msg.sender == _babylonCore, "BabylonEditionsExtension: Only BabylonCore can register");
+        require(msg.sender == _core, "BabylonEditionsExtension: Only BabylonCore can register");
         require(_editions[listingId] == address(0), "BabylonEditionsExtension: Edition already registered for this listing");
         require(royaltiesBps <= MAX_ROYALTIES_BPS, "BabylonEditionsExtension: Royalties BPS too high");
 
@@ -58,13 +56,17 @@ contract BabylonEditionsExtension is Ownable, ICreatorExtensionTokenURI {
     }
 
     function mintEdition(uint256 listingId, address receiver, uint256 amount) external {
-        require(msg.sender == _babylonCore, "BabylonEditionsExtension: Only BabylonCore can mint");
+        require(msg.sender == _core, "BabylonEditionsExtension: Only BabylonCore can mint");
         address editionsCollection = _editions[listingId];
         require(editionsCollection != address(0), "BabylonEditionsExtension: Edition should exist for this listing");
 
         IERC721CreatorCore(editionsCollection).mintExtensionBatch(receiver, uint16(amount));
 
         emit EditionMinted(listingId, editionsCollection, receiver, amount);
+    }
+
+    function setBabylonCore(address core) external onlyOwner {
+        _core = core;
     }
 
     function getEditionsCollection(uint256 listingId) external view returns (address) {
@@ -76,7 +78,7 @@ contract BabylonEditionsExtension is Ownable, ICreatorExtensionTokenURI {
     }
 
     function getBabylonCore() external view returns (address) {
-        return _babylonCore;
+        return _core;
     }
 
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {

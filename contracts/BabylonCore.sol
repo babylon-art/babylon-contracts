@@ -97,6 +97,10 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
 
     function participate(uint256 id, uint256 tickets) external payable {
         ListingInfo storage listing =  _listingInfos[id];
+        require(
+            _tokensController.checkApproval(listing.creator, listing.item),
+            "BabylonCore: Token is no longer owned or approved to the controller"
+        );
         require(listing.state == ListingState.Active, "BabylonCore: Listing state should be active");
         require(block.timestamp >= listing.timeStart, "BabylonCore: Too early to participate");
         uint256 current = listing.currentTickets;
@@ -121,15 +125,11 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
     function cancelListing(uint256 id) external {
         ListingInfo storage listing =  _listingInfos[id];
         if (listing.state == ListingState.Resolving) {
-            require(
-                !_randomProvider.isRequestOverdue(listing.randomRequestId),
-                    "BabylonCore: Random is not overdue"
-            );
+            require(_randomProvider.isRequestOverdue(listing.randomRequestId), "BabylonCore: Random is not overdue");
         } else {
             require(listing.state == ListingState.Active, "BabylonCore: Listing state should be active");
+            require(msg.sender == listing.creator, "BabylonCore: Only listing creator can cancel active listing");
         }
-
-        require(msg.sender == listing.creator, "BabylonCore: Only listing creator can cancel");
 
         listing.state = ListingState.Canceled;
 
@@ -153,13 +153,23 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
         if (sent) {
             listing.state = ListingState.Finalized;
             (sent, ) = payable(_treasury).call{value: fee}("");
-            require(sent);
+            require(sent, "BabylonCore: Unable to send ETH to the treasury");
             emit ListingFinalized(id);
         }
     }
 
     function refund(uint256 id) external nonReentrant {
         ListingInfo storage listing =  _listingInfos[id];
+
+        if (
+            (listing.state == ListingState.Active || listing.state == ListingState.Resolving) &&
+            !_tokensController.checkApproval(listing.creator, listing.item)
+        ) {
+            listing.state = ListingState.Canceled;
+
+            emit ListingCanceled(id);
+        }
+
         require(listing.state == ListingState.Canceled, "BabylonCore: Listing state should be canceled to refund");
 
         uint256 tickets = IBabylonMintPass(listing.mintPass).burn(msg.sender);
@@ -167,7 +177,7 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
         uint256 amount = tickets * listing.price;
         (bool sent, ) = payable(msg.sender).call{value: amount}("");
 
-        require(sent, "BabylonCore: Unable to send ETH");
+        require(sent, "BabylonCore: Unable to refund ETH");
     }
 
     function mintEdition(uint256 id) external {

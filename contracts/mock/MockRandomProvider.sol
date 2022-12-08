@@ -9,14 +9,20 @@ contract MockRandomProvider is IRandomProvider {
     uint256 public lastRequestId;
     bool public overdue;
 
-    IBabylonCore internal _babylonCore;
+    IBabylonCore internal _core;
 
-    constructor(IBabylonCore babylonCore_) {
-        _babylonCore = babylonCore_;
+    constructor() {}
+
+    function getBabylonCore() external view returns (address) {
+        return address(_core);
+    }
+
+    function setBabylonCore(IBabylonCore core) external {
+        _core = core;
     }
 
     function fulfillRandomWords(uint256 _listingId, uint256[] memory randomWords) external {
-        _babylonCore.resolveClaimer(_listingId, randomWords[0]);
+        _core.resolveClaimer(_listingId, randomWords[0]);
     }
 
     function setOverdue(

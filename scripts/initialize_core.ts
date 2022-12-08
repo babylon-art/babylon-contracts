@@ -1,4 +1,4 @@
-import {ethers} from "hardhat";
+import {ethers, upgrades} from "hardhat";
 import {SignerWithAddress} from "@nomiclabs/hardhat-ethers/signers";
 
 async function main() {
@@ -6,30 +6,27 @@ async function main() {
 
     [deployer] = await ethers.getSigners();
 
-    let coreAddress = "0xEbD86a050D5F60a94B84dd4406B6E962c3270D4d";
-    let controllerAddress = "0x34C9Dcec0f71d672749b902b2d4f631023cb69FF";
-    let providerAddress = "0x56C3209AC781687B334a2D857a65d9ca3878Ee66";
-    let editionsExtension = "0xFF5db6150491e154D86c6328fa109D79be9Aec01";
+    let coreProxy = "0xa9442CEF97552c64f752Bb9fb7430D7A7B85aBAe";
 
-    let minTotalPrice = ethers.utils.parseUnits("0.0001", 18);
-    let totalFeesCeiling = ethers.utils.parseUnits("1", 18);
-    let feeMultiplier = 10; // 1%
-    let treasury = deployer.address;
+    let controllerAddress = "0xF760434F91889Df457bA35F65f8226b65485B47C";
+    let providerAddress = "0x8aa6C77Af4Dc1f50Ada944683F717F48b1765D9e";
+    let editionsExtensionAddress = "0x36546DBd1e97d68C4266e3f9a920bca11d8F7fc1";
 
-    const core = await ethers.getContractAt("BabylonCore", coreAddress, deployer);
-    let tx = await core.initialize(
-        controllerAddress,
-        providerAddress,
-        editionsExtension,
-        minTotalPrice,
-        totalFeesCeiling,
-        feeMultiplier,
-        treasury
-    );
+    const controller = await ethers.getContractAt("TokensController", controllerAddress, deployer);
+    const provider = await ethers.getContractAt("RandomProvider", providerAddress, deployer);
+    const editions = await ethers.getContractAt("BabylonEditionsExtension", editionsExtensionAddress, deployer);
 
+    let tx = await controller.setBabylonCore(coreProxy);
     await tx.wait();
+    console.log("Controller initialized");
 
-    console.log(`BabylonCore initialized`);
+    tx = await provider.setBabylonCore(coreProxy);
+    await tx.wait();
+    console.log("Provider initialized");
+
+    tx = await editions.setBabylonCore(coreProxy);
+    await tx.wait();
+    console.log("Editions initialized");
 }
 
 main()

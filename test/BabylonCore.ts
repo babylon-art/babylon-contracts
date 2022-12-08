@@ -1,4 +1,4 @@
-import hre from 'hardhat';
+import hre, {upgrades} from 'hardhat';
 import chai from 'chai';
 
 import {Contract, constants, utils} from 'ethers';
@@ -40,24 +40,21 @@ describe('BabylonCore', function () {
     describe('set up', function () {
         it('#deployment', async () => {
             [deployer, user1, user2] = await ethers.getSigners();
-            coreFactory = await ethers.getContractFactory('BabylonCore', deployer);
-            core = await coreFactory.deploy();
-            await core.deployed();
 
             mintPassFactory = await ethers.getContractFactory("BabylonMintPass", deployer);
             mintPass = await mintPassFactory.deploy();
 
             controllerFactory = await ethers.getContractFactory('TokensController', deployer);
-            controller = await controllerFactory.deploy(core.address, mintPass.address);
+            controller = await controllerFactory.deploy(mintPass.address);
             await controller.deployed();
 
             editionsExtensionFactory = await ethers.getContractFactory("BabylonEditionsExtension", deployer);
-            editionsExtension = await editionsExtensionFactory.deploy(core.address, OPERATOR_FILTERER);
+            editionsExtension = await editionsExtensionFactory.deploy(OPERATOR_FILTERER);
             await editionsExtension.deployed();
 
             mockRandomProviderFactory = await ethers.getContractFactory('MockRandomProvider', deployer);
 
-            mockRandomProvider = await mockRandomProviderFactory.deploy(core.address);
+            mockRandomProvider = await mockRandomProviderFactory.deploy();
             await mockRandomProvider.deployed();
 
             nft = await ethers.getContractAt('IERC721', NFT_COLLECTION, deployer);
@@ -69,6 +66,23 @@ describe('BabylonCore', function () {
             let feeMultiplier = 10; // 1%
             let treasury = deployer.address;
 
+            coreFactory = await ethers.getContractFactory('BabylonCore', deployer);
+
+            core = await upgrades.deployProxy(
+                coreFactory,
+                [
+                    controller.address,
+                    mockRandomProvider.address,
+                    editionsExtension.address,
+                    minTotalPrice,
+                    totalFeesCeiling,
+                    feeMultiplier,
+                    treasury
+                ]
+            );
+
+            /*
+            core = await coreFactory.deploy();
             await core.initialize(
                 controller.address,
                 mockRandomProvider.address,
@@ -77,7 +91,7 @@ describe('BabylonCore', function () {
                 totalFeesCeiling,
                 feeMultiplier,
                 treasury
-            );
+            );*/
 
             expect(await core.getTokensController()).to.be.equal(controller.address);
             expect(await core.getRandomProvider()).to.be.equal(mockRandomProvider.address);
@@ -88,6 +102,10 @@ describe('BabylonCore', function () {
             expect(await core.getTreasury()).to.be.equal(treasury);
             expect(await core.BASIS_POINTS()).to.be.equal(1000);
             expect(await core.MAX_FEE_MULTIPLIER()).to.be.equal(25);
+
+            await mockRandomProvider.setBabylonCore(core.address);
+            await controller.setBabylonCore(core.address);
+            await editionsExtension.setBabylonCore(core.address);
         });
     });
 
@@ -231,6 +249,14 @@ describe('BabylonCore', function () {
             expect(info.state).to.be.eq(1); //Resolving
             expect(info.currentTickets).to.be.eq(info.totalTickets);
             expect(amount).to.be.eq(numTickets);
+        });
+
+        it('creator should not cancel resolving listing if random is not overdue', async () => {
+            let listingId = 1;
+
+            expect(await mockRandomProvider.overdue()).to.be.eq(false);
+            await expect(core.connect(deployer).cancelListing(listingId))
+                .to.be.revertedWith("BabylonCore: Random is not overdue");
         });
 
         it('should fulfill random and get winner', async () => {
