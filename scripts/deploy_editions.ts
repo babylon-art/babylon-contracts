@@ -6,7 +6,7 @@ async function main() {
 
     [deployer] = await ethers.getSigners();
 
-    let operatorFilterer = "0x851b63Bf5f575eA68A84baa5Ff9174172E4d7838";
+    let operatorFilterer = "0x1dE06D2875453a272628BbB957077d18eb4A84CD";
 
     const editionsFactory = await ethers.getContractFactory("BabylonEditionsExtension", deployer);
     const editions = await editionsFactory.deploy(operatorFilterer);

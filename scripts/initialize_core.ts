@@ -6,11 +6,11 @@ async function main() {
 
     [deployer] = await ethers.getSigners();
 
-    let coreProxy = "0xa9442CEF97552c64f752Bb9fb7430D7A7B85aBAe";
+    let coreProxy = "0x7fbFBC7c0Cf34Ddf8b16B05A4efeE817273dE5a7";
 
-    let controllerAddress = "0xF760434F91889Df457bA35F65f8226b65485B47C";
-    let providerAddress = "0x8aa6C77Af4Dc1f50Ada944683F717F48b1765D9e";
-    let editionsExtensionAddress = "0x36546DBd1e97d68C4266e3f9a920bca11d8F7fc1";
+    let controllerAddress = "0x16d4Ca85666F533a3b5274eC921D3cD90f4EE0C8";
+    let providerAddress = "0x1dfb64676132D243dAB17f59a10F5052e29e1E70";
+    let editionsExtensionAddress = "0xc50c17359f2bb803ef7D2e59efe36BeC799FaFb6";
 
     const controller = await ethers.getContractAt("TokensController", controllerAddress, deployer);
     const provider = await ethers.getContractAt("RandomProvider", providerAddress, deployer);
