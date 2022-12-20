@@ -35,11 +35,12 @@ interface IBabylonCore {
         address creator;
         address claimer;
         address mintPass;
-        uint256 randomRequestId;
         uint256 price;
         uint256 timeStart;
         uint256 totalTickets;
         uint256 currentTickets;
+        uint256 donationBps;
+        uint256 randomRequestId;
         uint256 creationTimestamp;
     }
 

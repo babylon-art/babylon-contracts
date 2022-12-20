@@ -66,6 +66,7 @@ contract RandomProvider is IRandomProvider, Ownable, VRFConsumerBaseV2 {
     function requestRandom(
         uint256 listingId
     ) external override returns (uint256 requestId) {
+        require(msg.sender == address(_core), "RandomProvider: Only BabylonCore can request");
         requestId = VRF_COORDINATOR.requestRandomWords(
             keyHash,
             subscriptionId,

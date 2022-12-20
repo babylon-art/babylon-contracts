@@ -19,9 +19,6 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
     //listing ids start from 1st, not 0
     uint256 internal _lastListingId;
 
-    uint256 internal _minTotalPrice;
-    uint256 internal _totalFeesCeiling;
-    uint256 internal _feeMultiplier;
     address internal _treasury;
 
     // collection address -> tokenId -> id of a listing
@@ -29,8 +26,7 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
     // id of a listing -> a listing info
     mapping(uint256 => ListingInfo) internal _listingInfos;
 
-    uint256 public constant BASIS_POINTS = 1000;
-    uint256 public constant MAX_FEE_MULTIPLIER = 25; //2.5%
+    uint256 public constant BASIS_POINTS = 10000;
 
     event NewParticipant(uint256 listingId, address participant, uint256 ticketsAmount);
     event ListingStarted(uint256 listingId, address creator, address token, uint256 tokenId, address mintPass);
@@ -43,9 +39,6 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
         ITokensController tokensController,
         IRandomProvider randomProvider,
         IEditionsExtension editionsExtension,
-        uint256 minTotalPrice,
-        uint256 totalFeesCeiling,
-        uint256 feeMultiplier,
         address treasury
     ) public initializer {
         __Context_init_unchained();
@@ -54,41 +47,39 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
         _tokensController = tokensController;
         _randomProvider = randomProvider;
         _editionsExtension = editionsExtension;
-        _minTotalPrice = minTotalPrice;
-        _totalFeesCeiling = totalFeesCeiling;
-        _feeMultiplier = feeMultiplier;
         _treasury = treasury;
         transferOwnership(msg.sender);
     }
 
     function startListing(
         ListingItem calldata item,
+        IEditionsExtension.EditionInfo calldata edition,
         uint256 timeStart,
         uint256 price,
         uint256 totalTickets,
-        uint256 editionsRoyaltiesBps,
-        string calldata editionURI
+        uint256 donationBps
     ) external {
-        require(totalTickets > 0, "BabylonCore: Number of tickets is too low");
-        require(price * totalTickets >= _minTotalPrice, "BabylonCore: Total price of tickets is too low");
-
         require(
             _tokensController.checkApproval(msg.sender, item),
             "BabylonCore: Token should be owned and approved to the controller"
         );
 
+        require(totalTickets > 0, "BabylonCore: Number of tickets is too low");
+        require(donationBps <= BASIS_POINTS, "BabylonCore: Donation out of range");
+
         uint256 newListingId = _lastListingId + 1;
         address mintPass = _tokensController.createMintPass(newListingId);
-        _editionsExtension.registerEdition(msg.sender, newListingId, editionsRoyaltiesBps, editionURI);
+        _editionsExtension.registerEdition(edition, msg.sender, newListingId);
         _ids[item.token][item.identifier] = newListingId;
         ListingInfo storage listing = _listingInfos[newListingId];
         listing.item = item;
         listing.state = ListingState.Active;
         listing.creator = msg.sender;
         listing.mintPass = mintPass;
+        listing.price = price;
         listing.timeStart = timeStart;
         listing.totalTickets = totalTickets;
-        listing.price = price;
+        listing.donationBps = donationBps;
         listing.creationTimestamp = block.timestamp;
         _lastListingId = newListingId;
 
@@ -140,22 +131,23 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
         ListingInfo storage listing =  _listingInfos[id];
         require(listing.state == ListingState.Successful, "BabylonCore: Listing state should be successful");
 
-        uint256 amount = listing.totalTickets * listing.price;
-        uint256 fee = amount * _feeMultiplier / BASIS_POINTS;
+        bool sent;
+        uint256 creatorPayout = listing.totalTickets * listing.price;
+        uint256 donation = creatorPayout * listing.donationBps / BASIS_POINTS;
 
-        if (fee > _totalFeesCeiling) {
-            fee = _totalFeesCeiling;
+        if (donation > 0) {
+            creatorPayout -= donation;
+            (sent, ) = payable(_treasury).call{value: donation}("");
+            require(sent, "BabylonCore: Unable to send donation to the treasury");
         }
 
-        uint256 creatorPayout = amount - fee;
-        (bool sent, ) = payable(listing.creator).call{value: creatorPayout}("");
-
-        if (sent) {
-            listing.state = ListingState.Finalized;
-            (sent, ) = payable(_treasury).call{value: fee}("");
-            require(sent, "BabylonCore: Unable to send ETH to the treasury");
-            emit ListingFinalized(id);
+        if (creatorPayout > 0) {
+            (sent, ) = payable(listing.creator).call{value: creatorPayout}("");
+            require(sent, "BabylonCore: Unable to send ETH to the creator");
         }
+
+        listing.state = ListingState.Finalized;
+        emit ListingFinalized(id);
     }
 
     function refund(uint256 id) external nonReentrant {
@@ -212,37 +204,12 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
         _mintPassBaseURI = mintPassBaseURI;
     }
 
-    function setMinTotalPrice(uint256 minTotalPrice) external onlyOwner {
-        _minTotalPrice = minTotalPrice;
-    }
-
-    function setTotalFeesCeiling(uint256 totalFeesCeiling) external onlyOwner {
-        _totalFeesCeiling = totalFeesCeiling;
-    }
-
-    function setFeeMultiplier(uint256 feeMultiplier) external onlyOwner {
-        require(_feeMultiplier <= MAX_FEE_MULTIPLIER, 'BabylonCore: New fee multiplier is too high');
-        _feeMultiplier = feeMultiplier;
-    }
-
     function setTreasury(address treasury) external onlyOwner {
         _treasury = treasury;
     }
 
     function getLastListingId() external view returns (uint256) {
         return _lastListingId;
-    }
-
-    function getMinTotalPrice() external view returns (uint256) {
-        return _minTotalPrice;
-    }
-
-    function getTotalFeesCeiling() external view returns (uint256) {
-        return _totalFeesCeiling;
-    }
-
-    function getFeeMultiplier() external view returns (uint256) {
-        return _feeMultiplier;
     }
 
     function getTreasury() external view returns (address) {

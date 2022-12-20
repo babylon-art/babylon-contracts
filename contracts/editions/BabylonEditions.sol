@@ -23,5 +23,5 @@ import "./ERC721Creator.sol";
 ///////////////////////////////////////////////////
 
 contract BabylonEditions is ERC721Creator {
-    constructor() ERC721Creator("Babylon Editions", "BNE") {}
+    constructor(string memory name) ERC721Creator(name, "BAB") {}
 }

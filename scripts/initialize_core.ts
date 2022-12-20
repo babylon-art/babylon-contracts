@@ -1,4 +1,4 @@
-import {ethers, upgrades} from "hardhat";
+import {ethers} from "hardhat";
 import {SignerWithAddress} from "@nomiclabs/hardhat-ethers/signers";
 
 async function main() {
@@ -6,11 +6,11 @@ async function main() {
 
     [deployer] = await ethers.getSigners();
 
-    let coreProxy = "0x7fbFBC7c0Cf34Ddf8b16B05A4efeE817273dE5a7";
+    let coreProxy = "0x68305B515D56ffEfD1f4a062510ad5a227655020";
 
-    let controllerAddress = "0x16d4Ca85666F533a3b5274eC921D3cD90f4EE0C8";
-    let providerAddress = "0x1dfb64676132D243dAB17f59a10F5052e29e1E70";
-    let editionsExtensionAddress = "0xc50c17359f2bb803ef7D2e59efe36BeC799FaFb6";
+    let controllerAddress = "0x0B32536F1086095AA363560830bf3A1e67C1f762";
+    let providerAddress = "0xF4642C3A92d3aC79861C922D59b404640E012b52";
+    let editionsExtensionAddress = "0x87B9D70817bd974041753346259103fB9DB18A79";
 
     const controller = await ethers.getContractAt("TokensController", controllerAddress, deployer);
     const provider = await ethers.getContractAt("RandomProvider", providerAddress, deployer);

@@ -8,14 +8,12 @@ import {solidity} from 'ethereum-waffle';
 import {
     balanceOfETH,
     NFT_COLLECTION,
-    EDITIONS_COLLECTION,
-    OPERATOR_FILTERER,
     VRF_COORDINATOR,
     VRF_SUBSCRIPTION_ID,
     VRF_KEYHASH
 } from './utils';
 
-import {IBabylonCore} from "../typechain";
+import {IBabylonCore, IEditionsExtension} from "../typechain";
 
 const { ethers } = hre;
 
@@ -49,7 +47,7 @@ describe('BabylonCore', function () {
             await controller.deployed();
 
             editionsExtensionFactory = await ethers.getContractFactory("BabylonEditionsExtension", deployer);
-            editionsExtension = await editionsExtensionFactory.deploy(OPERATOR_FILTERER);
+            editionsExtension = await editionsExtensionFactory.deploy();
             await editionsExtension.deployed();
 
             mockRandomProviderFactory = await ethers.getContractFactory('MockRandomProvider', deployer);
@@ -61,47 +59,33 @@ describe('BabylonCore', function () {
         });
 
         it('#initialize', async function () {
-            let minTotalPrice = ethers.utils.parseUnits("0.1", 18);
-            let totalFeesCeiling = ethers.utils.parseUnits("1", 18);
-            let feeMultiplier = 10; // 1%
             let treasury = deployer.address;
 
             coreFactory = await ethers.getContractFactory('BabylonCore', deployer);
 
-            core = await upgrades.deployProxy(
+            /*core = await upgrades.deployProxy(
                 coreFactory,
                 [
                     controller.address,
                     mockRandomProvider.address,
                     editionsExtension.address,
-                    minTotalPrice,
-                    totalFeesCeiling,
-                    feeMultiplier,
                     treasury
                 ]
-            );
+            );*/
 
-            /*
             core = await coreFactory.deploy();
             await core.initialize(
                 controller.address,
                 mockRandomProvider.address,
                 editionsExtension.address,
-                minTotalPrice,
-                totalFeesCeiling,
-                feeMultiplier,
                 treasury
-            );*/
+            );
 
             expect(await core.getTokensController()).to.be.equal(controller.address);
             expect(await core.getRandomProvider()).to.be.equal(mockRandomProvider.address);
             expect(await core.getEditionsExtension()).to.be.equal(editionsExtension.address);
-            expect(await core.getMinTotalPrice()).to.be.equal(minTotalPrice);
-            expect(await core.getTotalFeesCeiling()).to.be.equal(totalFeesCeiling);
-            expect(await core.getFeeMultiplier()).to.be.equal(feeMultiplier);
             expect(await core.getTreasury()).to.be.equal(treasury);
-            expect(await core.BASIS_POINTS()).to.be.equal(1000);
-            expect(await core.MAX_FEE_MULTIPLIER()).to.be.equal(25);
+            expect(await core.BASIS_POINTS()).to.be.equal(10000);
 
             await mockRandomProvider.setBabylonCore(core.address);
             await controller.setBabylonCore(core.address);
@@ -112,12 +96,15 @@ describe('BabylonCore', function () {
     describe('#listing 1', function () {
         it('should start listing', async () => {
             let item: IBabylonCore.ListingItemStruct;
+            let edition: IEditionsExtension.EditionInfoStruct;
             let timeStart = 0;
             let tokenId = 1;
             let amount = 1;
             let price = ethers.utils.parseUnits("1", 18);
             let totalTickets = 5;
+            let donationBps = 500; //5%
             let editionRoyaltiesBps = 1000; //10%
+            let editionName = "Artist on Babylon";
             let editionURI = "ipfs://CID/metadata.json";
 
             item = {
@@ -125,7 +112,13 @@ describe('BabylonCore', function () {
                 token: nft.address,
                 identifier: tokenId,
                 amount: amount
-            }
+            };
+
+            edition = {
+                royaltiesBps: editionRoyaltiesBps,
+                name: editionName,
+                editionURI: editionURI
+            };
 
             let owner = await nft.ownerOf(tokenId);
             expect(owner).to.be.eq(deployer.address);
@@ -134,11 +127,11 @@ describe('BabylonCore', function () {
 
             await core.startListing(
                 item,
+                edition,
                 timeStart,
                 price,
                 totalTickets,
-                editionRoyaltiesBps,
-                editionURI
+                donationBps
             );
 
             let newId = await core.getListingId(nft.address, tokenId);
@@ -153,15 +146,17 @@ describe('BabylonCore', function () {
             expect(info.state).to.be.eq(0);
             expect(info.creator).to.be.eq(deployer.address);
             expect(info.claimer).to.be.eq(ethers.constants.AddressZero);
-            expect(info.randomRequestId).to.be.eq(0);
-            expect(info.price).to.be.eq(price);
             expect(info.timeStart).to.be.eq(timeStart);
+            expect(info.price).to.be.eq(price);
             expect(info.totalTickets).to.be.eq(totalTickets);
             expect(info.currentTickets).to.be.eq(0);
+            expect(info.donationBps).to.be.eq(donationBps);
+            expect(info.randomRequestId).to.be.eq(0);
 
             mintPass = await ethers.getContractAt("BabylonMintPass", info.mintPass, user1);
             let editionsCollection = await editionsExtension.getEditionsCollection(newId);
             manifoldCreator = await ethers.getContractAt("IERC721Metadata", editionsCollection, deployer);
+            expect(await manifoldCreator.name()).to.be.eq(editionName);
         });
 
         it('should participate (3/5 tickets)', async () => {
@@ -355,12 +350,15 @@ describe('BabylonCore', function () {
     describe('#listing 2', function () {
         it('should start listing', async () => {
             let item: IBabylonCore.ListingItemStruct;
+            let edition: IEditionsExtension.EditionInfoStruct;
             let timeStart = 0;
             let tokenId = 2;
             let amount = 1;
             let price = ethers.utils.parseUnits("2", 18);
             let totalTickets = 10;
+            let donationBps = 500; //5%
             let editionRoyaltiesBps = 1000; //10%
+            let editionName = "Artist on Babylon";
             let editionURI = "ipfs://CID/metadata.json";
 
             item = {
@@ -368,7 +366,13 @@ describe('BabylonCore', function () {
                 token: nft.address,
                 identifier: tokenId,
                 amount: amount
-            }
+            };
+
+            edition = {
+                royaltiesBps: editionRoyaltiesBps,
+                name: editionName,
+                editionURI: editionURI
+            };
 
             let owner = await nft.ownerOf(tokenId);
             expect(owner).to.be.eq(user1.address);
@@ -377,11 +381,11 @@ describe('BabylonCore', function () {
 
             await core.connect(user1).startListing(
                 item,
+                edition,
                 timeStart,
                 price,
                 totalTickets,
-                editionRoyaltiesBps,
-                editionURI
+                donationBps
             );
 
             let newId = await core.getListingId(nft.address, tokenId);
