@@ -7,14 +7,14 @@ async function main() {
     [deployer] = await ethers.getSigners();
 
     //mainnet
-    /*let vrfCoordinator = "0x271682DEB8C4E0901D1a1550aD2e64D568E69909";
-    let keyHash = "0xff8dedfbfa60af186cf3c830acbc32c05aae823045ae5ea7da1e45fbfaba4f92";
-    let subscriptionId = 565;*/
+    let vrfCoordinator = "0x271682DEB8C4E0901D1a1550aD2e64D568E69909";
+    let keyHash = "0x8af398995b04c28e9951adb9721ef74c74f93e6a478f39e7e0777be13527e7ef";
+    let subscriptionId = 565;
 
     //goerli
-    let vrfCoordinator = "0x2Ca8E0C643bDe4C2E08ab1fA0da3401AdAD7734D";
+    /*let vrfCoordinator = "0x2Ca8E0C643bDe4C2E08ab1fA0da3401AdAD7734D";
     let keyHash = "0x79d3d8832d904592c0bf9818b621522c988bb8b0c05cdc3b15aea1b6e8db0c15";
-    let subscriptionId = 4099;
+    let subscriptionId = 4099;*/
 
     const providerFactory = await ethers.getContractFactory("RandomProvider", deployer);
 

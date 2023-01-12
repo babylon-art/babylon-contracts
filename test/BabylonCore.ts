@@ -146,7 +146,7 @@ describe('BabylonCore', function () {
             expect(info.state).to.be.eq(0);
             expect(info.creator).to.be.eq(deployer.address);
             expect(info.claimer).to.be.eq(ethers.constants.AddressZero);
-            expect(info.timeStart).to.be.eq(timeStart);
+            expect(info.timeStart).to.be.gt(0);
             expect(info.price).to.be.eq(price);
             expect(info.totalTickets).to.be.eq(totalTickets);
             expect(info.currentTickets).to.be.eq(0);
@@ -157,6 +157,42 @@ describe('BabylonCore', function () {
             let editionsCollection = await editionsExtension.getEditionsCollection(newId);
             manifoldCreator = await ethers.getContractAt("IERC721Metadata", editionsCollection, deployer);
             expect(await manifoldCreator.name()).to.be.eq(editionName);
+        });
+
+        it('should not start a duplicate listing for a same nft', async () => {
+            let item: IBabylonCore.ListingItemStruct;
+            let edition: IEditionsExtension.EditionInfoStruct;
+            let timeStart = 0;
+            let tokenId = 1;
+            let amount = 1;
+            let price = ethers.utils.parseUnits("10", 18);
+            let totalTickets = 5;
+            let donationBps = 500; //5%
+            let editionRoyaltiesBps = 1000; //10%
+            let editionName = "Duplicate on Babylon";
+            let editionURI = "ipfs://CID/metadata.json";
+
+            item = {
+                itemType: 0, //ERC721
+                token: nft.address,
+                identifier: tokenId,
+                amount: amount
+            };
+
+            edition = {
+                royaltiesBps: editionRoyaltiesBps,
+                name: editionName,
+                editionURI: editionURI
+            };
+
+            await expect(core.startListing(
+                item,
+                edition,
+                timeStart,
+                price,
+                totalTickets,
+                donationBps
+            )).to.be.revertedWith("BabylonCore: Active listing for this token already exists");
         });
 
         it('should participate (3/5 tickets)', async () => {

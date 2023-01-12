@@ -6,9 +6,9 @@ async function main() {
 
     [deployer] = await ethers.getSigners();
 
-    let controllerAddress = "0x0B32536F1086095AA363560830bf3A1e67C1f762";
-    let providerAddress = "0xF4642C3A92d3aC79861C922D59b404640E012b52";
-    let editionsExtensionAddress = "0x87B9D70817bd974041753346259103fB9DB18A79";
+    let controllerAddress = "";
+    let providerAddress = "";
+    let editionsExtensionAddress = "";
 
     let treasury = deployer.address;
 

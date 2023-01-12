@@ -41,6 +41,7 @@ contract TokensController is ITokensController, Ownable {
     }
 
     function setBabylonCore(address core) external onlyOwner {
+        require(core != address(0), "TokensController: Zero address");
         _core = core;
     }
 
@@ -49,8 +50,9 @@ contract TokensController is ITokensController, Ownable {
         IBabylonCore.ListingItem calldata item
     ) external view returns (bool) {
         if (item.itemType == IBabylonCore.ItemType.ERC721) {
+            address owner = IERC721(item.token).ownerOf(item.identifier);
             address operator = IERC721(item.token).getApproved(item.identifier);
-            return address(this) == operator;
+            return ((owner == creator) && (address(this) == operator));
         } else if (item.itemType == IBabylonCore.ItemType.ERC1155) {
             bool approved = IERC1155(item.token).isApprovedForAll(creator, address(this));
             uint256 amount = IERC1155(item.token).balanceOf(creator, item.identifier);

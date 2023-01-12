@@ -58,6 +58,7 @@ contract BabylonEditionsExtension is Ownable, IEditionsExtension, ICreatorExtens
     }
 
     function setBabylonCore(address core) external onlyOwner {
+        require(core != address(0), "BabylonEditionsExtension: Zero address");
         _core = core;
     }
 

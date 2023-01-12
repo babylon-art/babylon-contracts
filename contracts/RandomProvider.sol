@@ -44,6 +44,7 @@ contract RandomProvider is IRandomProvider, Ownable, VRFConsumerBaseV2 {
     }
 
     function setBabylonCore(IBabylonCore core) external onlyOwner {
+        require(address(core) != address(0), "RandomProvider: Zero address");
         _core = core;
     }
 

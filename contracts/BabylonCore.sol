@@ -18,6 +18,7 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
     string internal _mintPassBaseURI;
     //listing ids start from 1st, not 0
     uint256 internal _lastListingId;
+    uint256 internal _maxListingDuration;
 
     address internal _treasury;
 
@@ -47,6 +48,7 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
         _tokensController = tokensController;
         _randomProvider = randomProvider;
         _editionsExtension = editionsExtension;
+        _maxListingDuration = 7 days;
         _treasury = treasury;
         transferOwnership(msg.sender);
     }
@@ -59,6 +61,16 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
         uint256 totalTickets,
         uint256 donationBps
     ) external {
+        uint256 listingId = _ids[item.token][item.identifier];
+
+        if (listingId != 0) {
+            require(
+                _listingInfos[listingId].state != ListingState.Active &&
+                _listingInfos[listingId].state != ListingState.Resolving,
+                "BabylonCore: Active listing for this token already exists"
+            );
+        }
+
         require(
             _tokensController.checkApproval(msg.sender, item),
             "BabylonCore: Token should be owned and approved to the controller"
@@ -67,26 +79,26 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
         require(totalTickets > 0, "BabylonCore: Number of tickets is too low");
         require(donationBps <= BASIS_POINTS, "BabylonCore: Donation out of range");
 
-        uint256 newListingId = _lastListingId + 1;
-        address mintPass = _tokensController.createMintPass(newListingId);
-        _editionsExtension.registerEdition(edition, msg.sender, newListingId);
-        _ids[item.token][item.identifier] = newListingId;
-        ListingInfo storage listing = _listingInfos[newListingId];
+        listingId = _lastListingId + 1;
+        address mintPass = _tokensController.createMintPass(listingId);
+        _editionsExtension.registerEdition(edition, msg.sender, listingId);
+        _ids[item.token][item.identifier] = listingId;
+        ListingInfo storage listing = _listingInfos[listingId];
         listing.item = item;
         listing.state = ListingState.Active;
         listing.creator = msg.sender;
         listing.mintPass = mintPass;
         listing.price = price;
-        listing.timeStart = timeStart;
+        listing.timeStart = timeStart > block.timestamp ? timeStart : block.timestamp;
         listing.totalTickets = totalTickets;
         listing.donationBps = donationBps;
         listing.creationTimestamp = block.timestamp;
-        _lastListingId = newListingId;
+        _lastListingId = listingId;
 
-        emit ListingStarted(newListingId, msg.sender, item.token, item.identifier, mintPass);
+        emit ListingStarted(listingId, msg.sender, item.token, item.identifier, mintPass);
     }
 
-    function participate(uint256 id, uint256 tickets) external payable {
+    function participate(uint256 id, uint256 tickets) external payable nonReentrant {
         ListingInfo storage listing =  _listingInfos[id];
         require(
             _tokensController.checkApproval(listing.creator, listing.item),
@@ -154,8 +166,14 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
         ListingInfo storage listing =  _listingInfos[id];
 
         if (
-            (listing.state == ListingState.Active || listing.state == ListingState.Resolving) &&
-            !_tokensController.checkApproval(listing.creator, listing.item)
+            (
+                (listing.state == ListingState.Active || listing.state == ListingState.Resolving) &&
+                !_tokensController.checkApproval(listing.creator, listing.item)
+            ) ||
+            (
+                listing.state == ListingState.Active &&
+                (listing.timeStart + _maxListingDuration <= block.timestamp)
+            )
         ) {
             listing.state = ListingState.Canceled;
 
@@ -200,6 +218,10 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
         emit ListingSuccessful(id, claimer);
     }
 
+    function setMaxListingDuration(uint256 maxListingDuration) external onlyOwner {
+        _maxListingDuration = maxListingDuration;
+    }
+
     function setMintPassBaseURI(string calldata mintPassBaseURI) external onlyOwner {
         _mintPassBaseURI = mintPassBaseURI;
     }
@@ -234,6 +256,10 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
 
     function getEditionsExtension() external view returns (IEditionsExtension) {
         return _editionsExtension;
+    }
+
+    function getMaxListingDuration() external view returns (uint256) {
+        return _maxListingDuration;
     }
 
     function getMintPassBaseURI() external view returns (string memory) {
