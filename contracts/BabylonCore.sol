@@ -7,6 +7,7 @@ import "./interfaces/IBabylonMintPass.sol";
 import "./interfaces/ITokensController.sol";
 import "./interfaces/IRandomProvider.sol";
 import "./interfaces/IEditionsExtension.sol";
+import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
@@ -26,6 +27,10 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
     mapping(address => mapping(uint256 => uint256)) internal _ids;
     // id of a listing -> a listing info
     mapping(uint256 => ListingInfo) internal _listingInfos;
+    // id of a listing -> a listing restrictions
+    mapping(uint256 => ListingRestrictions) internal _listingRestrictions;
+    // id of a listing -> participant address -> num of mint passes
+    mapping(uint256 => mapping(address => uint256)) internal _participations;
 
     uint256 public constant BASIS_POINTS = 10000;
 
@@ -35,6 +40,13 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
     event ListingSuccessful(uint256 listingId, address claimer);
     event ListingCanceled(uint256 listingId);
     event ListingFinalized(uint256 listingId);
+    event ListingRestrictionsUpdated(
+        uint256 indexed listingId,
+        bytes32 allowlistRoot,
+        uint256 reserved,
+        uint256 mintedFromReserve,
+        uint256 maxPerAddress
+    );
 
     function initialize(
         ITokensController tokensController,
@@ -56,6 +68,7 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
     function startListing(
         ListingItem calldata item,
         IEditionsExtension.EditionInfo calldata edition,
+        ListingRestrictions calldata restrictions,
         uint256 timeStart,
         uint256 price,
         uint256 totalTickets,
@@ -79,6 +92,12 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
         require(totalTickets > 0, "BabylonCore: Number of tickets is too low");
         require(donationBps <= BASIS_POINTS, "BabylonCore: Donation out of range");
 
+        require(
+            restrictions.reserved <= totalTickets &&
+            restrictions.maxPerAddress <= totalTickets,
+            "BabylonCore: Incorrect restrictions"
+        );
+
         listingId = _lastListingId + 1;
         address mintPass = _tokensController.createMintPass(listingId);
         _editionsExtension.registerEdition(edition, msg.sender, listingId);
@@ -93,12 +112,27 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
         listing.totalTickets = totalTickets;
         listing.donationBps = donationBps;
         listing.creationTimestamp = block.timestamp;
+        ListingRestrictions storage listingRestrictions = _listingRestrictions[listingId];
+        listingRestrictions.allowlistRoot = restrictions.allowlistRoot;
+        listingRestrictions.reserved = restrictions.reserved;
+        listingRestrictions.maxPerAddress = restrictions.maxPerAddress;
         _lastListingId = listingId;
 
         emit ListingStarted(listingId, msg.sender, item.token, item.identifier, mintPass);
+        emit ListingRestrictionsUpdated(
+            listingId,
+            restrictions.allowlistRoot,
+            restrictions.reserved,
+            0,
+            restrictions.maxPerAddress
+        );
     }
 
-    function participate(uint256 id, uint256 tickets) external payable nonReentrant {
+    function participate(
+        uint256 id,
+        uint256 tickets,
+        bytes32[] calldata allowlistProof
+    ) external payable nonReentrant {
         ListingInfo storage listing =  _listingInfos[id];
         require(
             _tokensController.checkApproval(listing.creator, listing.item),
@@ -107,9 +141,38 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
         require(listing.state == ListingState.Active, "BabylonCore: Listing state should be active");
         require(block.timestamp >= listing.timeStart, "BabylonCore: Too early to participate");
         uint256 current = listing.currentTickets;
-        require(current + tickets <= listing.totalTickets, "BabylonCore: no available tickets");
+        require(current + tickets <= listing.totalTickets, "BabylonCore: No available tickets");
         uint256 totalPrice = listing.price * tickets;
         require(msg.value == totalPrice, "BabylonCore: msg.value doesn't match price for tickets");
+
+        ListingRestrictions storage restrictions = _listingRestrictions[id];
+
+        uint256 participations = _participations[id][msg.sender] + tickets;
+        require(participations <= restrictions.maxPerAddress, "BabylonCore: Tickets exceed maxPerAddress");
+        _participations[id][msg.sender] = participations;
+
+        bytes32 leaf = keccak256(abi.encodePacked(msg.sender));
+        if (MerkleProof.verify(allowlistProof, restrictions.allowlistRoot, leaf)) {
+            uint256 allowlistLeft = restrictions.reserved - restrictions.mintedFromReserve;
+            if (allowlistLeft > 0) {
+                if (allowlistLeft <= tickets) {
+                    restrictions.mintedFromReserve = restrictions.reserved;
+                } else {
+                    restrictions.mintedFromReserve += tickets;
+                }
+
+                emit ListingRestrictionsUpdated(
+                    id,
+                    restrictions.allowlistRoot,
+                    restrictions.reserved,
+                    restrictions.mintedFromReserve,
+                    restrictions.maxPerAddress
+                );
+            }
+        } else {
+            uint256 available = (listing.totalTickets + restrictions.mintedFromReserve) - current - restrictions.reserved;
+            require((available >= tickets), "BabylonCore: No available tickets outside the allowlist");
+        }
 
         IBabylonMintPass(listing.mintPass).mint(msg.sender, tickets);
 
@@ -123,6 +186,34 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
 
             emit ListingResolving(id, listing.randomRequestId);
         }
+    }
+
+    function updateListingRestrictions(uint256 id, ListingRestrictions calldata newRestrictions) external {
+        ListingInfo storage listing =  _listingInfos[id];
+        require(listing.state == ListingState.Active, "BabylonCore: Listing state should be active");
+        require(msg.sender == listing.creator, "BabylonCore: Only the creator can update the restrictions");
+
+        ListingRestrictions storage restrictions = _listingRestrictions[id];
+        uint256 totalTickets = listing.totalTickets;
+
+        require(
+            newRestrictions.maxPerAddress <= totalTickets &&
+            newRestrictions.reserved >= restrictions.mintedFromReserve &&
+            newRestrictions.reserved <= (totalTickets - listing.currentTickets + restrictions.mintedFromReserve),
+            "BabylonCore: Incorrect restrictions"
+        );
+
+        restrictions.allowlistRoot = newRestrictions.allowlistRoot;
+        restrictions.reserved = newRestrictions.reserved;
+        restrictions.maxPerAddress = newRestrictions.maxPerAddress;
+
+        emit ListingRestrictionsUpdated(
+            id,
+            restrictions.allowlistRoot,
+            restrictions.reserved,
+            restrictions.mintedFromReserve,
+            restrictions.maxPerAddress
+        );
     }
 
     function cancelListing(uint256 id) external {
@@ -195,7 +286,7 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
         require(
             listing.state == ListingState.Successful ||
             listing.state == ListingState.Finalized,
-                "BabylonCore: Listing should be successful"
+            "BabylonCore: Listing should be successful"
         );
 
         uint256 tickets = IBabylonMintPass(listing.mintPass).burn(msg.sender);
@@ -230,6 +321,36 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
         _treasury = treasury;
     }
 
+    function getAvailableToParticipate(
+        uint256 id,
+        address user,
+        bytes32[] calldata allowlistProof
+    ) external view returns (uint256) {
+        ListingInfo storage listing =  _listingInfos[id];
+        ListingRestrictions storage restrictions = _listingRestrictions[id];
+        uint256 current = listing.currentTickets;
+        uint256 total = listing.totalTickets;
+        uint256 available = total - current;
+
+        if (
+            (listing.state == ListingState.Active) &&
+            _tokensController.checkApproval(listing.creator, listing.item) &&
+            (block.timestamp >= listing.timeStart) &&
+            (available > 0) &&
+            (restrictions.maxPerAddress > _participations[id][user])
+        ) {
+            uint256 leftForAddress = restrictions.maxPerAddress - _participations[id][user];
+            bytes32 leaf = keccak256(abi.encodePacked(user));
+            if (!MerkleProof.verify(allowlistProof, restrictions.allowlistRoot, leaf)) {
+                available = (total + restrictions.mintedFromReserve) - current - restrictions.reserved;
+            }
+
+            return available >= leftForAddress ? leftForAddress : available;
+        }
+
+        return 0;
+    }
+
     function getLastListingId() external view returns (uint256) {
         return _lastListingId;
     }
@@ -244,6 +365,14 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
 
     function getListingInfo(uint256 id) external view returns (ListingInfo memory) {
         return _listingInfos[id];
+    }
+
+    function getListingParticipations(uint256 id, address user) external view returns (uint256) {
+        return _participations[id][user];
+    }
+
+    function getListingRestrictions(uint256 id) external view returns (ListingRestrictions memory) {
+        return _listingRestrictions[id];
     }
 
     function getTokensController() external view returns (ITokensController) {

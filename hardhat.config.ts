@@ -39,8 +39,8 @@ const config: HardhatUserConfig = {
         hardhat: {
             forking: {
                 enabled: true,
-                url: `https://eth-goerli.g.alchemy.com/v2/${ALCHEMY_GOERLI_KEY}`,
-                blockNumber: 8080000
+                url: `https://eth-mainnet.alchemyapi.io/v2/${ALCHEMY_API_KEY}`,
+                blockNumber: 16450000
             },
             accounts: [
                 {

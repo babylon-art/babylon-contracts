@@ -44,6 +44,16 @@ interface IBabylonCore {
         uint256 creationTimestamp;
     }
 
+    /**
+     * @dev Contains all restriction for a specific listing such as allowlist and max per wallet.
+    */
+    struct ListingRestrictions {
+        bytes32 allowlistRoot;
+        uint256 reserved;
+        uint256 mintedFromReserve;
+        uint256 maxPerAddress;
+    }
+
     function resolveClaimer(
         uint256 id,
         uint256 random
