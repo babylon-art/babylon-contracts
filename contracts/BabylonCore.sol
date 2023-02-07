@@ -190,22 +190,24 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
 
     function updateListingRestrictions(uint256 id, ListingRestrictions calldata newRestrictions) external {
         ListingInfo storage listing =  _listingInfos[id];
+        uint256 totalTickets = listing.totalTickets;
         require(listing.state == ListingState.Active, "BabylonCore: Listing state should be active");
         require(msg.sender == listing.creator, "BabylonCore: Only the creator can update the restrictions");
 
         ListingRestrictions storage restrictions = _listingRestrictions[id];
-        uint256 totalTickets = listing.totalTickets;
-
-        require(
-            newRestrictions.maxPerAddress <= totalTickets &&
-            newRestrictions.reserved >= restrictions.mintedFromReserve &&
-            newRestrictions.reserved <= (totalTickets - listing.currentTickets + restrictions.mintedFromReserve),
-            "BabylonCore: Incorrect restrictions"
-        );
-
         restrictions.allowlistRoot = newRestrictions.allowlistRoot;
-        restrictions.reserved = newRestrictions.reserved;
-        restrictions.maxPerAddress = newRestrictions.maxPerAddress;
+
+        uint256 reserveFloor = restrictions.mintedFromReserve;
+        uint256 reserveCeiling = (totalTickets - listing.currentTickets + restrictions.mintedFromReserve);
+
+        if (newRestrictions.reserved <= reserveCeiling) {
+            restrictions.reserved = newRestrictions.reserved <= reserveFloor ? reserveFloor : newRestrictions.reserved;
+        } else {
+            restrictions.reserved = reserveCeiling;
+        }
+
+        restrictions.maxPerAddress = newRestrictions.maxPerAddress >= totalTickets ?
+            totalTickets : newRestrictions.maxPerAddress;
 
         emit ListingRestrictionsUpdated(
             id,

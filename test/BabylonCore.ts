@@ -1,7 +1,7 @@
 import hre from 'hardhat';
 import chai from 'chai';
 
-import {Contract, constants, utils, Wallet} from 'ethers';
+import {Contract, constants} from 'ethers';
 import {SignerWithAddress} from '@nomiclabs/hardhat-ethers/signers';
 import {solidity} from 'ethereum-waffle';
 
@@ -703,6 +703,86 @@ describe('BabylonCore.sol', function () {
             expect(listingRestrictions.maxPerAddress).to.be.eq(newRestrictions.maxPerAddress);
         });
 
+        it('not the creator should not update the listing restrictions', async () => {
+            let listingId = 3;
+
+            let newRestrictions: ListingRestrictionsStruct = {
+                allowlistRoot: constants.HashZero,
+                reserved: 0,
+                mintedFromReserve: 0,
+                maxPerAddress: 1
+            };
+
+            await expect(core.connect(user1).updateListingRestrictions(
+                    listingId,
+                    newRestrictions
+                )
+            ).to.be.revertedWith("BabylonCore: Only the creator can update the restrictions");
+        });
+
+        it('update of the maxPerAddress out of bounds should correct down to the totalTickets', async () => {
+            let listingId = 3;
+            let info = await core.getListingInfo(listingId);
+
+            let newRestrictions: ListingRestrictionsStruct = {
+                allowlistRoot: allowlistMerkleTree.getHexRoot(), //doesn't change
+                reserved: 5,
+                mintedFromReserve: 0,
+                maxPerAddress: 100 //more than total tickets
+            };
+
+            await core.updateListingRestrictions(
+                listingId,
+                newRestrictions
+            );
+
+            let listingRestrictions = await core.getListingRestrictions(listingId);
+            expect(listingRestrictions.maxPerAddress).to.be.eq(info.totalTickets);
+        });
+
+        it('update of the reserve out of bounds should correct down to the current ceiling', async () => {
+            let listingId = 3;
+            let info = await core.getListingInfo(listingId);
+            let oldRestrictions: ListingRestrictionsStruct = await core.getListingRestrictions(listingId);
+
+            let reserveCeiling = (info.totalTickets.sub(info.currentTickets)).add(oldRestrictions.mintedFromReserve);
+
+            let newRestrictions: ListingRestrictionsStruct = {
+                allowlistRoot: allowlistMerkleTree.getHexRoot(), //doesn't change
+                reserved: 100, //more than total tickets
+                mintedFromReserve: 0,
+                maxPerAddress: 4 //doesn't change
+            };
+
+            await core.updateListingRestrictions(
+                listingId,
+                newRestrictions
+            );
+
+            let listingRestrictions = await core.getListingRestrictions(listingId);
+            expect(listingRestrictions.reserved).to.be.eq(reserveCeiling);
+        });
+
+        it('update of the reserve out of bounds should correct up to the current floor', async () => {
+            let listingId = 3;
+            let oldRestrictions: ListingRestrictionsStruct = await core.getListingRestrictions(listingId);
+
+            let newRestrictions: ListingRestrictionsStruct = {
+                allowlistRoot: allowlistMerkleTree.getHexRoot(), //doesn't change
+                reserved: 0, //less than already minted from reserve
+                mintedFromReserve: 0,
+                maxPerAddress: 4 //doesn't change
+            };
+
+            await core.updateListingRestrictions(
+                listingId,
+                newRestrictions
+            );
+
+            let listingRestrictions = await core.getListingRestrictions(listingId);
+            expect(listingRestrictions.reserved).to.be.eq(oldRestrictions.mintedFromReserve);
+        });
+
         it('update of the listing restrictions emits event', async () => {
             let listingId = 3;
             let info = await core.getListingInfo(listingId);
@@ -726,66 +806,6 @@ describe('BabylonCore.sol', function () {
             expect(listingRestrictions.allowlistRoot).to.be.eq(newRestrictions.allowlistRoot);
             expect(listingRestrictions.reserved).to.be.eq(newRestrictions.reserved);
             expect(listingRestrictions.maxPerAddress).to.be.eq(newRestrictions.maxPerAddress);
-        });
-
-        it('not the creator should not update the listing restrictions', async () => {
-            let listingId = 3;
-
-            let newRestrictions: ListingRestrictionsStruct = {
-                allowlistRoot: constants.HashZero,
-                reserved: 0,
-                mintedFromReserve: 0,
-                maxPerAddress: 1
-            };
-
-            await expect(core.connect(user1).updateListingRestrictions(
-                    listingId,
-                    newRestrictions
-                )
-            ).to.be.revertedWith("BabylonCore: Only the creator can update the restrictions");
-        });
-
-        it('should not update the listing restrictions with incorrect parameters', async () => {
-            let listingId = 3;
-
-            let newRestrictions: ListingRestrictionsStruct = {
-                allowlistRoot: constants.HashZero,
-                reserved: 100, //more than total tickets
-                mintedFromReserve: 0,
-                maxPerAddress: 100 //more than total tickets
-            };
-
-            await expect(core.updateListingRestrictions(
-                    listingId,
-                    newRestrictions
-                )
-            ).to.be.revertedWith("BabylonCore: Incorrect restrictions");
-
-            newRestrictions = {
-                allowlistRoot: constants.HashZero,
-                reserved: 100, //more than total tickets
-                mintedFromReserve: 0,
-                maxPerAddress: 1
-            };
-
-            await expect(core.updateListingRestrictions(
-                    listingId,
-                    newRestrictions
-                )
-            ).to.be.revertedWith("BabylonCore: Incorrect restrictions");
-
-            newRestrictions = {
-                allowlistRoot: constants.HashZero,
-                reserved: 0,
-                mintedFromReserve: 0,
-                maxPerAddress: 100 //more than total tickets
-            };
-
-            await expect(core.updateListingRestrictions(
-                    listingId,
-                    newRestrictions
-                )
-            ).to.be.revertedWith("BabylonCore: Incorrect restrictions");
         });
 
         it('should participate and get both allowlist and public tickets', async () => {
