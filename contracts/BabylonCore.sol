@@ -134,11 +134,11 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
         bytes32[] calldata allowlistProof
     ) external payable nonReentrant {
         ListingInfo storage listing =  _listingInfos[id];
+        require(listing.state == ListingState.Active, "BabylonCore: Listing state should be active");
         require(
             _tokensController.checkApproval(listing.creator, listing.item),
             "BabylonCore: Token is no longer owned or approved to the controller"
         );
-        require(listing.state == ListingState.Active, "BabylonCore: Listing state should be active");
         require(block.timestamp >= listing.timeStart, "BabylonCore: Too early to participate");
         uint256 current = listing.currentTickets;
         require(current + tickets <= listing.totalTickets, "BabylonCore: No available tickets");
@@ -218,6 +218,18 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
         );
     }
 
+    function settleListing(uint256 id) external {
+        ListingInfo storage listing =  _listingInfos[id];
+        require(listing.state == ListingState.Active, "BabylonCore: Listing state should be active");
+        require(msg.sender == listing.creator, "BabylonCore: Only listing creator can settle listing");
+        require(listing.currentTickets > 0, "BabylonCore: Too few tickets to settle");
+
+        listing.randomRequestId = _randomProvider.requestRandom(id);
+        listing.state = ListingState.Resolving;
+
+        emit ListingResolving(id, listing.randomRequestId);
+    }
+
     function cancelListing(uint256 id) external {
         ListingInfo storage listing =  _listingInfos[id];
         if (listing.state == ListingState.Resolving) {
@@ -237,7 +249,7 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
         require(listing.state == ListingState.Successful, "BabylonCore: Listing state should be successful");
 
         bool sent;
-        uint256 creatorPayout = listing.totalTickets * listing.price;
+        uint256 creatorPayout = listing.currentTickets * listing.price;
         uint256 donation = creatorPayout * listing.donationBps / BASIS_POINTS;
 
         if (donation > 0) {
@@ -302,7 +314,7 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
         require(msg.sender == address(_randomProvider), "BabylonCore: msg.sender is not the Random Provider");
         ListingInfo storage listing =  _listingInfos[id];
         require(listing.state == ListingState.Resolving, "BabylonCore: Listing state should be resolving");
-        uint256 claimerIndex = random % listing.totalTickets;
+        uint256 claimerIndex = random % listing.currentTickets;
         address claimer = IBabylonMintPass(listing.mintPass).ownerOf(claimerIndex);
         listing.claimer = claimer;
         listing.state = ListingState.Successful;
