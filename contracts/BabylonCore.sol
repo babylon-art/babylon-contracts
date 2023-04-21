@@ -7,6 +7,7 @@ import "./interfaces/IBabylonMintPass.sol";
 import "./interfaces/ITokensController.sol";
 import "./interfaces/IRandomProvider.sol";
 import "./interfaces/IEditionsExtension.sol";
+import "./interfaces/IAffiliateController.sol";
 import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
@@ -31,6 +32,10 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
     mapping(uint256 => ListingRestrictions) internal _listingRestrictions;
     // id of a listing -> participant address -> num of mint passes
     mapping(uint256 => mapping(address => uint256)) internal _participations;
+
+    uint256 internal _minDonationBps;
+
+    IAffiliateController internal _affiliateController;
 
     uint256 public constant BASIS_POINTS = 10000;
 
@@ -72,7 +77,8 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
         uint256 timeStart,
         uint256 price,
         uint256 totalTickets,
-        uint256 donationBps
+        uint256 donationBps,
+        bytes32 affiliateCode
     ) external {
         uint256 listingId = _ids[item.token][item.identifier];
 
@@ -90,7 +96,12 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
         );
 
         require(totalTickets > 0, "BabylonCore: Number of tickets is too low");
-        require(donationBps <= BASIS_POINTS, "BabylonCore: Donation out of range");
+
+        require(
+            donationBps >= _minDonationBps &&
+            donationBps <= BASIS_POINTS,
+            "BabylonCore: Donation out of range"
+        );
 
         require(
             restrictions.reserved <= totalTickets &&
@@ -112,6 +123,12 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
         listing.totalTickets = totalTickets;
         listing.donationBps = donationBps;
         listing.creationTimestamp = block.timestamp;
+
+        if (affiliateCode != bytes32(0)) {
+            _affiliateController.registerReferee(affiliateCode, msg.sender);
+            listing.donationBps = donationBps / 2;
+        }
+
         ListingRestrictions storage listingRestrictions = _listingRestrictions[listingId];
         listingRestrictions.allowlistRoot = restrictions.allowlistRoot;
         listingRestrictions.reserved = restrictions.reserved;
@@ -251,9 +268,18 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
         bool sent;
         uint256 creatorPayout = listing.currentTickets * listing.price;
         uint256 donation = creatorPayout * listing.donationBps / BASIS_POINTS;
+        (uint256 referrerBPS, address referrer) = _affiliateController.getReferrerBPS(listing.creator, donation);
+        uint256 referrerPayout;
+
+        if (referrerBPS > 0) {
+            referrerPayout = donation * referrerBPS / BASIS_POINTS;
+            (sent, ) = payable(referrer).call{value: referrerPayout}("");
+            require(sent, "BabylonCore: Unable to send ETH to the referrer");
+        }
 
         if (donation > 0) {
             creatorPayout -= donation;
+            donation -= referrerPayout;
             (sent, ) = payable(_treasury).call{value: donation}("");
             require(sent, "BabylonCore: Unable to send donation to the treasury");
         }
@@ -323,8 +349,17 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
         emit ListingSuccessful(id, claimer);
     }
 
+    function setAffiliateController(IAffiliateController affiliateController) external onlyOwner {
+        require(address(affiliateController) != address(0));
+        _affiliateController = affiliateController;
+    }
+
     function setMaxListingDuration(uint256 maxListingDuration) external onlyOwner {
         _maxListingDuration = maxListingDuration;
+    }
+
+    function setMinDonationBps(uint256 minDonationBps) external onlyOwner {
+        _minDonationBps = minDonationBps;
     }
 
     function setMintPassBaseURI(string calldata mintPassBaseURI) external onlyOwner {
@@ -333,6 +368,10 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
 
     function setTreasury(address treasury) external onlyOwner {
         _treasury = treasury;
+    }
+
+    function getAffiliateController() external view returns (IAffiliateController) {
+        return _affiliateController;
     }
 
     function getAvailableToParticipate(
@@ -367,6 +406,10 @@ contract BabylonCore is Initializable, IBabylonCore, OwnableUpgradeable, Reentra
 
     function getLastListingId() external view returns (uint256) {
         return _lastListingId;
+    }
+
+    function getMinDonationBps() external view returns (uint256) {
+        return _minDonationBps;
     }
 
     function getTreasury() external view returns (address) {

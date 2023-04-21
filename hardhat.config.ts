@@ -12,6 +12,7 @@ dotEnvConfig();
 
 const ALCHEMY_API_KEY = process.env.ALCHEMY_API_KEY || "";
 const ALCHEMY_GOERLI_KEY = process.env.ALCHEMY_GOERLI_KEY || "";
+const ALCHEMY_SEPOLIA_KEY = process.env.ALCHEMY_SEPOLIA_KEY || "";
 
 const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY || "";
 
@@ -62,6 +63,10 @@ const config: HardhatUserConfig = {
             url: `https://eth-goerli.g.alchemy.com/v2/${ALCHEMY_GOERLI_KEY}`,
             accounts: [PRIVATE_KEY, PRIVATE_KEY_2, PRIVATE_KEY_3],
         },
+        sepolia: {
+            url: `https://eth-sepolia.g.alchemy.com/v2/${ALCHEMY_SEPOLIA_KEY}`,
+            accounts: [PRIVATE_KEY, PRIVATE_KEY_2, PRIVATE_KEY_3],
+        },
         local: {
             url: "http://127.0.0.1:8545",
             accounts: [PRIVATE_KEY, PRIVATE_KEY_2, PRIVATE_KEY_3],
@@ -72,6 +77,7 @@ const config: HardhatUserConfig = {
         apiKey: {
             mainnet: ETHERSCAN_API_KEY,
             goerli: ETHERSCAN_API_KEY,
+            sepolia: ETHERSCAN_API_KEY
         }
     },
     paths: {

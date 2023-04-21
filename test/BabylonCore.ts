@@ -6,7 +6,8 @@ import {SignerWithAddress} from '@nomiclabs/hardhat-ethers/signers';
 import {solidity} from 'ethereum-waffle';
 
 import {
-    balanceOfETH
+    balanceOfETH,
+    labelhash
 } from './utils';
 
 import {BabylonCore, IEditionsExtension} from '../typechain';
@@ -29,10 +30,13 @@ let mintPass: Contract, mintPassFactory;
 let controller: Contract, controllerFactory;
 let editionsExtension: Contract, editionsExtensionFactory;
 let mockRandomProvider: Contract, mockRandomProviderFactory;
+let affiliateController: Contract, affiliateFactory;
 let manifoldCreator: Contract;
 let allowlistMerkleTree: MerkleTree;
 
 let nft: Contract, nftFactory;
+
+let promocode: string, promocodeNode: string;
 
 describe('BabylonCore.sol', function () {
     this.timeout(3000000);
@@ -52,12 +56,16 @@ describe('BabylonCore.sol', function () {
             mockRandomProviderFactory = await ethers.getContractFactory('MockRandomProvider', deployer);
             mockRandomProvider = await mockRandomProviderFactory.deploy();
 
+            affiliateFactory = await ethers.getContractFactory('AffiliateController', deployer);
+            affiliateController = await affiliateFactory.deploy();
+
             nftFactory = await ethers.getContractFactory('GenericERC721');
             nft = await nftFactory.deploy('Generic', 'GEN', 'ipfs://cid/');
         });
 
         it('#initialize', async function () {
             let treasury = deployer.address;
+            let minDonationBps = 500; //5%
 
             coreFactory = await ethers.getContractFactory('BabylonCore', deployer);
 
@@ -69,11 +77,27 @@ describe('BabylonCore.sol', function () {
                 treasury
             );
 
+            let referralTimeframe = 2592000; // 30 days
+
+            let amounts = [
+                ethers.utils.parseEther("10"),
+                ethers.utils.parseEther("20"),
+                ethers.utils.parseEther("30")
+            ];
+
+            let payoutBPS = ["1000", "1500", "2000", "2500"];
+
+            await affiliateController.initialize(core.address, referralTimeframe, amounts, payoutBPS);
+
+            await core.setMinDonationBps(minDonationBps);
+            await core.setAffiliateController(affiliateController.address);
+
             expect(await core.getTokensController()).to.be.equal(controller.address);
             expect(await core.getRandomProvider()).to.be.equal(mockRandomProvider.address);
             expect(await core.getEditionsExtension()).to.be.equal(editionsExtension.address);
             expect(await core.getTreasury()).to.be.equal(treasury);
             expect(await core.BASIS_POINTS()).to.be.equal(10000);
+            expect(await core.getMinDonationBps()).to.be.equal(minDonationBps);
 
             await mockRandomProvider.setBabylonCore(core.address);
             await controller.setBabylonCore(core.address);
@@ -129,7 +153,8 @@ describe('BabylonCore.sol', function () {
                 timeStart,
                 price,
                 totalTickets,
-                donationBps
+                donationBps,
+                ethers.constants.HashZero
             );
 
             let newId = await core.getListingId(nft.address, tokenId);
@@ -199,7 +224,8 @@ describe('BabylonCore.sol', function () {
                 timeStart,
                 price,
                 totalTickets,
-                donationBps
+                donationBps,
+                ethers.constants.HashZero
             )).to.be.revertedWith("BabylonCore: Active listing for this token already exists");
         });
 
@@ -506,7 +532,8 @@ describe('BabylonCore.sol', function () {
                 timeStart,
                 price,
                 totalTickets,
-                donationBps
+                donationBps,
+                ethers.constants.HashZero
             );
 
             let newId = await core.getListingId(nft.address, tokenId);
@@ -678,7 +705,8 @@ describe('BabylonCore.sol', function () {
                 timeStart,
                 price,
                 totalTickets,
-                donationBps
+                donationBps,
+                ethers.constants.HashZero
             );
 
             let newId = await core.getListingId(nft.address, tokenId);
@@ -1102,7 +1130,8 @@ describe('BabylonCore.sol', function () {
                 timeStart,
                 price,
                 totalTickets,
-                donationBps
+                donationBps,
+                ethers.constants.HashZero
             );
 
             let newId = await core.getListingId(nft.address, tokenId);
@@ -1315,7 +1344,8 @@ describe('BabylonCore.sol', function () {
                 0,
                 ethers.utils.parseUnits("2", 18),
                 10,
-                500
+                500,
+                ethers.constants.HashZero
             );
 
             let newId = await core.getListingId(nft.address, tokenId);
@@ -1327,6 +1357,414 @@ describe('BabylonCore.sol', function () {
 
             await expect(core.connect(user1).settleListing(listingId))
                 .to.be.revertedWith("BabylonCore: Too few tickets to settle");
+        });
+    });
+
+    describe('#listing with out of range params', function () {
+        it('should not start a listing with non-approved token', async () => {
+            let tokenId = 6;
+
+            let item: IBabylonCore.ListingItemStruct;
+            let edition: IEditionsExtension.EditionInfoStruct;
+            let restrictions: ListingRestrictionsStruct;
+
+            let timeStart = 0;
+            let amount = 1;
+            let price = ethers.utils.parseUnits("10", 18);
+            let totalTickets = 5;
+            let donationBps = 500; //5%
+            let editionRoyaltiesBps = 1000; //10%
+            let editionName = "Duplicate on Babylon";
+            let editionURI = "ipfs://CID/metadata.json";
+
+            item = {
+                itemType: 0, //ERC721
+                token: nft.address,
+                identifier: tokenId,
+                amount: amount
+            };
+
+            edition = {
+                royaltiesBps: editionRoyaltiesBps,
+                name: editionName,
+                editionURI: editionURI
+            };
+
+            restrictions = {
+                allowlistRoot: constants.HashZero,
+                reserved: 0,
+                mintedFromReserve: 0,
+                maxPerAddress: totalTickets
+            }
+
+            await nft.mint(1);
+
+            await expect(core.startListing(
+                item,
+                edition,
+                restrictions,
+                timeStart,
+                price,
+                totalTickets,
+                donationBps,
+                ethers.constants.HashZero
+            )).to.be.revertedWith("BabylonCore: Token should be owned and approved to the controller");
+        });
+
+        it('should not start a listing with zero tickets', async () => {
+            let item: IBabylonCore.ListingItemStruct;
+            let edition: IEditionsExtension.EditionInfoStruct;
+            let restrictions: ListingRestrictionsStruct;
+
+            let timeStart = 0;
+            let tokenId = 6;
+            let amount = 1;
+            let price = ethers.utils.parseUnits("10", 18);
+            let totalTickets = 0; //out of range
+            let donationBps = 500; //5%
+            let editionRoyaltiesBps = 1000; //10%
+            let editionName = "Duplicate on Babylon";
+            let editionURI = "ipfs://CID/metadata.json";
+
+            item = {
+                itemType: 0, //ERC721
+                token: nft.address,
+                identifier: tokenId,
+                amount: amount
+            };
+
+            edition = {
+                royaltiesBps: editionRoyaltiesBps,
+                name: editionName,
+                editionURI: editionURI
+            };
+
+            restrictions = {
+                allowlistRoot: constants.HashZero,
+                reserved: 0,
+                mintedFromReserve: 0,
+                maxPerAddress: totalTickets
+            }
+
+            await nft.approve(controller.address, tokenId);
+
+            await expect(core.startListing(
+                item,
+                edition,
+                restrictions,
+                timeStart,
+                price,
+                totalTickets,
+                donationBps,
+                ethers.constants.HashZero
+            )).to.be.revertedWith("BabylonCore: Number of tickets is too low");
+        });
+
+        it('should not start a listing with below the min donation', async () => {
+            let item: IBabylonCore.ListingItemStruct;
+            let edition: IEditionsExtension.EditionInfoStruct;
+            let restrictions: ListingRestrictionsStruct;
+
+            let timeStart = 0;
+            let tokenId = 6;
+            let amount = 1;
+            let price = ethers.utils.parseUnits("10", 18);
+            let totalTickets = 5;
+            let donationBps = 100; //1% --> out of range
+            let editionRoyaltiesBps = 1000; //10%
+            let editionName = "Duplicate on Babylon";
+            let editionURI = "ipfs://CID/metadata.json";
+
+            item = {
+                itemType: 0, //ERC721
+                token: nft.address,
+                identifier: tokenId,
+                amount: amount
+            };
+
+            edition = {
+                royaltiesBps: editionRoyaltiesBps,
+                name: editionName,
+                editionURI: editionURI
+            };
+
+            restrictions = {
+                allowlistRoot: constants.HashZero,
+                reserved: 0,
+                mintedFromReserve: 0,
+                maxPerAddress: totalTickets
+            }
+
+            await expect(core.startListing(
+                item,
+                edition,
+                restrictions,
+                timeStart,
+                price,
+                totalTickets,
+                donationBps,
+                ethers.constants.HashZero
+            )).to.be.revertedWith("BabylonCore: Donation out of range");
+        });
+
+        it('should not start a listing with over the basis points donation', async () => {
+            let item: IBabylonCore.ListingItemStruct;
+            let edition: IEditionsExtension.EditionInfoStruct;
+            let restrictions: ListingRestrictionsStruct;
+
+            let timeStart = 0;
+            let tokenId = 6;
+            let amount = 1;
+            let price = ethers.utils.parseUnits("10", 18);
+            let totalTickets = 5;
+            let donationBps = 20000; //200% --> out of range
+            let editionRoyaltiesBps = 1000; //10%
+            let editionName = "Duplicate on Babylon";
+            let editionURI = "ipfs://CID/metadata.json";
+
+            item = {
+                itemType: 0, //ERC721
+                token: nft.address,
+                identifier: tokenId,
+                amount: amount
+            };
+
+            edition = {
+                royaltiesBps: editionRoyaltiesBps,
+                name: editionName,
+                editionURI: editionURI
+            };
+
+            restrictions = {
+                allowlistRoot: constants.HashZero,
+                reserved: 0,
+                mintedFromReserve: 0,
+                maxPerAddress: totalTickets
+            }
+
+            await expect(core.startListing(
+                item,
+                edition,
+                restrictions,
+                timeStart,
+                price,
+                totalTickets,
+                donationBps,
+                ethers.constants.HashZero
+            )).to.be.revertedWith("BabylonCore: Donation out of range");
+        });
+
+        it('should not start a listing with reserved tickets restriction over the total', async () => {
+            let item: IBabylonCore.ListingItemStruct;
+            let edition: IEditionsExtension.EditionInfoStruct;
+            let restrictions: ListingRestrictionsStruct;
+
+            let tokenId = 6;
+            let timeStart = 0;
+            let amount = 1;
+            let price = ethers.utils.parseUnits("10", 18);
+            let totalTickets = 5;
+            let donationBps = 500; //5%
+            let editionRoyaltiesBps = 1000; //10%
+            let editionName = "Duplicate on Babylon";
+            let editionURI = "ipfs://CID/metadata.json";
+
+            item = {
+                itemType: 0, //ERC721
+                token: nft.address,
+                identifier: tokenId,
+                amount: amount
+            };
+
+            edition = {
+                royaltiesBps: editionRoyaltiesBps,
+                name: editionName,
+                editionURI: editionURI
+            };
+
+            restrictions = {
+                allowlistRoot: constants.HashZero,
+                reserved: totalTickets + 1, //out of range
+                mintedFromReserve: 0,
+                maxPerAddress: totalTickets
+            }
+
+            await expect(core.startListing(
+                item,
+                edition,
+                restrictions,
+                timeStart,
+                price,
+                totalTickets,
+                donationBps,
+                ethers.constants.HashZero
+            )).to.be.revertedWith("BabylonCore: Incorrect restrictions");
+        });
+
+        it('should not start a listing with maxPerAddress tickets restriction over the total', async () => {
+            let item: IBabylonCore.ListingItemStruct;
+            let edition: IEditionsExtension.EditionInfoStruct;
+            let restrictions: ListingRestrictionsStruct;
+
+            let tokenId = 6;
+            let timeStart = 0;
+            let amount = 1;
+            let price = ethers.utils.parseUnits("10", 18);
+            let totalTickets = 5;
+            let donationBps = 500; //5%
+            let editionRoyaltiesBps = 1000; //10%
+            let editionName = "Duplicate on Babylon";
+            let editionURI = "ipfs://CID/metadata.json";
+
+            item = {
+                itemType: 0, //ERC721
+                token: nft.address,
+                identifier: tokenId,
+                amount: amount
+            };
+
+            edition = {
+                royaltiesBps: editionRoyaltiesBps,
+                name: editionName,
+                editionURI: editionURI
+            };
+
+            restrictions = {
+                allowlistRoot: constants.HashZero,
+                reserved: 0,
+                mintedFromReserve: 0,
+                maxPerAddress: totalTickets + 1 // out of range
+            }
+
+            await expect(core.startListing(
+                item,
+                edition,
+                restrictions,
+                timeStart,
+                price,
+                totalTickets,
+                donationBps,
+                ethers.constants.HashZero
+            )).to.be.revertedWith("BabylonCore: Incorrect restrictions");
+        });
+    });
+
+    describe('#listing with affiliate program', function () {
+        it('should register promo code', async () => {
+            promocode = "iamreferrer"
+            promocodeNode = labelhash(promocode);
+            expect(await affiliateController.getCodeNode(user1.address)).to.be.eq(ethers.constants.HashZero);
+
+            await affiliateController.connect(user1).registerReferrer(promocode);
+
+            let info = await affiliateController.getReferrerInfo(promocodeNode);
+            expect(await affiliateController.getCodeNode(user1.address)).to.be.eq(promocodeNode);
+            expect(info.referrer).to.be.eq(user1.address);
+            expect(info.generated).to.be.eq(0);
+            expect(info.lastPayoutTimestamp).to.be.eq(0);
+            expect(info.code).to.be.eq(promocode);
+        });
+
+        it('should start listing with promo code', async () => {
+            let item: IBabylonCore.ListingItemStruct;
+            let edition: IEditionsExtension.EditionInfoStruct;
+            let restrictions: ListingRestrictionsStruct;
+            let timeStart = 0;
+            let tokenId = 7;
+            let amount = 1;
+            let price = ethers.utils.parseUnits("1", 18);
+            let totalTickets = 5;
+            let donationBps = 500; //5%
+            let editionRoyaltiesBps = 1000; //10%
+            let editionName = "Affiliate artist on Babylon";
+            let editionURI = "ipfs://CID/metadata.json";
+
+            item = {
+                itemType: 0, //ERC721
+                token: nft.address,
+                identifier: tokenId,
+                amount: amount
+            };
+
+            edition = {
+                royaltiesBps: editionRoyaltiesBps,
+                name: editionName,
+                editionURI: editionURI
+            };
+
+            restrictions = {
+                allowlistRoot: constants.HashZero,
+                reserved: 0,
+                mintedFromReserve: 0,
+                maxPerAddress: totalTickets
+            }
+
+            await nft.connect(user2).mint(1);
+            await nft.connect(user2).approve(controller.address, tokenId);
+
+            await core.connect(user2).startListing(
+                item,
+                edition,
+                restrictions,
+                timeStart,
+                price,
+                totalTickets,
+                donationBps,
+                promocodeNode
+            );
+
+            let newId = await core.getListingId(nft.address, tokenId);
+            let info = await core.getListingInfo(newId);
+
+            expect(info.donationBps).to.be.eq(donationBps / 2); //donation percentage decreased by 50%
+            expect(await affiliateController.getReferrer(user2.address)).to.be.eq(promocodeNode); //user became referee
+        });
+
+        it('should fast-forward listing to the successful state', async () => {
+            let listingId = 6;
+            let numTickets = 5;
+            let info = await core.getListingInfo(listingId);
+            let price = info.price;
+
+            await core.connect(deployer).participate(
+                listingId,
+                numTickets,
+                [],
+                {
+                    value: price.mul(numTickets)
+                }
+            );
+
+            await mockRandomProvider.connect(deployer).fulfillRandomWords(
+                listingId,
+                [5]
+            );
+        });
+
+        it('referrer info should be saved on listing payout', async () => {
+            let listingId = 6;
+            let referrerBalance = await balanceOfETH(user1.address);
+
+            await core.connect(deployer).transferETHToCreator(listingId);
+
+            let listingInfo = await core.getListingInfo(listingId);
+            let referrerInfo = await affiliateController.getReferrerInfo(promocodeNode);
+
+            let donationFromListing =
+                listingInfo.currentTickets
+                    .mul(listingInfo.price)
+                    .mul(listingInfo.donationBps)
+                    .div(await core.BASIS_POINTS());
+
+
+            expect(referrerInfo.referrer).to.be.eq(user1.address);
+            expect(referrerInfo.generated).to.be.eq(donationFromListing);
+            expect(referrerInfo.lastPayoutTimestamp).to.be.not.eq(0);
+            expect(await affiliateController.getReferrer(user2.address)).to.be.eq(promocodeNode);
+            let referrerBalanceAfter = await balanceOfETH(user1.address);
+            let amountsAndBPS = await affiliateController.getAmountsAndBPS();
+            let referrerPayout = donationFromListing.mul(amountsAndBPS[1][0]).div(await core.BASIS_POINTS());
+            expect(referrerBalanceAfter.sub(referrerBalance)).to.be.eq(referrerPayout);
         });
     });
 })
